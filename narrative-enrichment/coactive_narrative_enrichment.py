@@ -11,13 +11,23 @@ Runs Coactive Video Narrative APIs on all videos in a dataset and updates metada
 - Video Format
 - Caption Keyframes (async)
 
+IMPORTANT: For genre, mood, subject, and format to work, you must first define
+the possible values using --setup-metadata. This creates the classification 
+categories that the API uses to categorize videos.
+
 Usage:
-    python3 coactive_narrative_enrichment.py --dataset-id <DATASET_ID> --token <REFRESH_TOKEN>
-    python3 coactive_narrative_enrichment.py -d <DATASET_ID> -t <REFRESH_TOKEN>
+    # First time setup - create metadata values
+    python3 coactive_narrative_enrichment.py -d <DATASET_ID> -t <TOKEN> --setup-metadata
+    
+    # Run enrichment
+    python3 coactive_narrative_enrichment.py -d <DATASET_ID> -t <TOKEN>
 
 Examples:
-    # Run on a specific dataset
-    python3 coactive_narrative_enrichment.py -d d2fae475-4ebd-46ac-8bad-af2c5a784b43 -t YOUR_TOKEN
+    # Setup metadata values and run enrichment
+    python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-metadata
+    
+    # Run enrichment only (metadata values already exist)
+    python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN
     
     # Run with custom summary intent
     python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --intent "Summarize key action scenes"
@@ -39,6 +49,40 @@ from datetime import datetime, timezone
 # API Configuration
 API_BASE_URL = "https://api.coactive.ai"
 APP_BASE_URL = "https://app.coactive.ai"
+
+
+# Default metadata values for classification
+# These define what categories the API can classify videos into
+DEFAULT_METADATA_VALUES = {
+    "genre": [
+        {"name": "Awards Show", "description": "Content featuring award ceremonies, acceptance speeches, and recognition events", "examples": ["Grammy Awards ceremony", "Artist receiving award on stage", "Acceptance speech"]},
+        {"name": "Documentary", "description": "Non-fiction content documenting real events and people", "examples": ["Behind the scenes footage", "Event documentation"]},
+        {"name": "Reality TV", "description": "Unscripted reality television content", "examples": ["Red carpet coverage", "Live event footage"]},
+        {"name": "Talk Show", "description": "Interview and conversation format programming", "examples": ["Celebrity interview", "Artist Q&A"]},
+        {"name": "Music Video", "description": "Music video or performance content", "examples": ["Artist performance", "Music clip"]},
+    ],
+    "mood": [
+        {"name": "Celebratory", "description": "Joyful and celebratory atmosphere", "examples": ["Award wins", "Celebration moments"]},
+        {"name": "Emotional", "description": "Touching and emotional moments", "examples": ["Heartfelt speeches", "Tearful acceptance"]},
+        {"name": "Exciting", "description": "High energy and exciting content", "examples": ["Performance highlights", "Big reveals"]},
+        {"name": "Inspiring", "description": "Uplifting and motivational content", "examples": ["Inspirational speeches", "Success stories"]},
+        {"name": "Nostalgic", "description": "Content evoking memories and nostalgia", "examples": ["Retrospective moments", "Historical clips"]},
+    ],
+    "subject": [
+        {"name": "Music", "description": "Content about music and musicians", "examples": ["Songs", "Albums", "Musical performances"]},
+        {"name": "Celebrity", "description": "Celebrity-focused content", "examples": ["Famous artists", "Star appearances"]},
+        {"name": "Awards", "description": "Award-related content", "examples": ["Grammy Awards", "Music awards"]},
+        {"name": "Fashion", "description": "Fashion and style content", "examples": ["Red carpet fashion", "Designer outfits"]},
+        {"name": "Entertainment Industry", "description": "Entertainment business content", "examples": ["Industry news", "Record labels"]},
+    ],
+    "format": [
+        {"name": "Speech", "description": "Acceptance speeches and presentations", "examples": ["Award acceptance", "Thank you speech"]},
+        {"name": "Performance", "description": "Live musical performances", "examples": ["Stage performance", "Live singing"]},
+        {"name": "Interview", "description": "Interview format content", "examples": ["Red carpet interview", "Backstage Q&A"]},
+        {"name": "Highlight Reel", "description": "Compilation and highlight content", "examples": ["Best moments", "Montage"]},
+        {"name": "Behind The Scenes", "description": "Behind the scenes footage", "examples": ["Backstage footage", "Preparation clips"]},
+    ],
+}
 
 
 def get_token(refresh_token):
@@ -82,6 +126,22 @@ def api_get(token, endpoint):
     """Make GET request to Coactive API."""
     cmd = [
         'curl', '-s', '-X', 'GET',
+        f'{API_BASE_URL}{endpoint}',
+        '-H', f'Authorization: Bearer {token}'
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == 0 and result.stdout:
+        try:
+            return json.loads(result.stdout)
+        except:
+            return None
+    return None
+
+
+def app_api_get(token, endpoint):
+    """Make GET request to Coactive App API."""
+    cmd = [
+        'curl', '-s', '-X', 'GET',
         f'{APP_BASE_URL}{endpoint}',
         '-H', f'Authorization: Bearer {token}'
     ]
@@ -94,14 +154,99 @@ def api_get(token, endpoint):
     return None
 
 
+def get_existing_metadata_values(token, dataset_id, metadata_type):
+    """Get existing metadata values for a type."""
+    resp = api_get(token, f'/api/v0/video-narrative-metadata/metadata?dataset_id={dataset_id}&metadata_type={metadata_type}')
+    if resp and 'items' in resp:
+        return resp['items']
+    return []
+
+
+def create_metadata_value(token, dataset_id, metadata_type, name, description, examples):
+    """Create a metadata value for classification."""
+    payload = {
+        "dataset_id": dataset_id,
+        "metadata_type": metadata_type,
+        "name": name,
+        "description": description,
+        "examples": examples
+    }
+    resp = api_post(token, '/api/v0/video-narrative-metadata/metadata', payload)
+    if resp and ('item' in resp or 'id' in resp):
+        return True, None
+    return False, resp.get('detail', 'Unknown error') if resp else 'No response'
+
+
+def setup_metadata_values(token, dataset_id, custom_values=None):
+    """
+    Setup metadata values for genre, mood, subject, and format.
+    These values define what categories the API can classify videos into.
+    
+    Args:
+        token: JWT access token
+        dataset_id: Dataset ID
+        custom_values: Optional dict of custom values (same structure as DEFAULT_METADATA_VALUES)
+    
+    Returns:
+        dict with counts of created/existing/failed values per type
+    """
+    values = custom_values or DEFAULT_METADATA_VALUES
+    results = {}
+    
+    print("\n📋 Setting up metadata classification values...")
+    print("   (This defines what categories the API can classify videos into)\n")
+    
+    for metadata_type, items in values.items():
+        print(f"   {metadata_type.upper()}:")
+        
+        # Check existing values
+        existing = get_existing_metadata_values(token, dataset_id, metadata_type)
+        existing_names = {item.get('name', '').lower() for item in existing}
+        
+        created = 0
+        skipped = 0
+        failed = 0
+        
+        for item in items:
+            name = item['name']
+            
+            # Skip if already exists
+            if name.lower() in existing_names:
+                print(f"      ⏭️  {name} (already exists)")
+                skipped += 1
+                continue
+            
+            # Create new value
+            success, error = create_metadata_value(
+                token, dataset_id, metadata_type,
+                name, item['description'], item['examples']
+            )
+            
+            if success:
+                print(f"      ✅ {name}")
+                created += 1
+            else:
+                # Some values may be rejected if they don't match the type's scope
+                print(f"      ⚠️  {name}: {str(error)[:50]}")
+                failed += 1
+        
+        results[metadata_type] = {'created': created, 'skipped': skipped, 'failed': failed}
+    
+    print("\n   Summary:")
+    for mt, counts in results.items():
+        print(f"      {mt}: {counts['created']} created, {counts['skipped']} existing, {counts['failed']} failed")
+    
+    return results
+
+
 def get_dataset_info(token, dataset_id):
     """Get dataset information."""
-    return api_get(token, f'/api/v1/datasets/{dataset_id}')
+    return app_api_get(token, f'/api/v1/datasets/{dataset_id}')
 
 
 def get_dataset_videos(token, dataset_id, limit=100):
     """Get all videos from dataset."""
-    data = api_get(token, f'/api/v1/datasets/{dataset_id}/videos?limit={limit}')
+    data = app_api_get(token, f'/api/v1/datasets/{dataset_id}/videos?limit={limit}')
     if data and 'data' in data:
         return data['data']
     return []
@@ -110,88 +255,109 @@ def get_dataset_videos(token, dataset_id, limit=100):
 def get_narrative_metadata(token, dataset_id, video_id, summary_intent=None):
     """Get all narrative metadata for a video."""
     metadata = {}
+    fields = []
     
     # Default summary intent
     if not summary_intent:
         summary_intent = "Provide a comprehensive summary of the video content, plot, key scenes, and themes"
     
     # Summary
-    print("    📝 Summary...")
+    print("    📝 Summary...", end=" ", flush=True)
     resp = api_post(token, 
         f'/api/v0/video-summarization/datasets/{dataset_id}/videos/{video_id}/summarize',
         {"summary_intent": summary_intent}
     )
     if resp and 'summary' in resp:
         metadata['video_narrative_summary'] = resp['summary']
-        print(f"       ✅ Got summary ({len(resp['summary'])} chars)")
-    elif resp and 'detail' in resp:
-        print(f"       ⚠️ {str(resp['detail'])[:60]}")
+        fields.append('summary')
+        print("✅")
+    else:
+        print("❌")
     
     # Description
-    print("    📄 Description...")
+    print("    📄 Description...", end=" ", flush=True)
     resp = api_post(token, 
         f'/api/v0/video-narrative-metadata/datasets/{dataset_id}/videos/{video_id}/description',
         {}
     )
     if resp and 'description' in resp:
         metadata['video_narrative_description'] = resp['description']
-        print("       ✅ Got description")
+        fields.append('desc')
+        print("✅")
+    else:
+        print("❌")
     
     # Genre
-    print("    🎬 Genre...")
+    print("    🎬 Genre...", end=" ", flush=True)
     resp = api_post(token, 
         f'/api/v0/video-narrative-metadata/datasets/{dataset_id}/videos/{video_id}/genre',
         {}
     )
-    if resp and 'genres' in resp:
+    if resp and 'genres' in resp and resp['genres']:
         metadata['video_narrative_genre'] = ', '.join(resp['genres'])
-        print(f"       ✅ {metadata['video_narrative_genre']}")
+        fields.append('genre')
+        print(f"✅ {metadata['video_narrative_genre']}")
+    else:
+        print("❌ (run --setup-metadata first)")
     
     # Mood
-    print("    🎭 Mood...")
+    print("    🎭 Mood...", end=" ", flush=True)
     resp = api_post(token, 
         f'/api/v0/video-narrative-metadata/datasets/{dataset_id}/videos/{video_id}/mood',
         {}
     )
-    if resp and 'moods' in resp:
+    if resp and 'moods' in resp and resp['moods']:
         metadata['video_narrative_mood'] = ', '.join(resp['moods'])
-        print(f"       ✅ {metadata['video_narrative_mood']}")
+        fields.append('mood')
+        print(f"✅ {metadata['video_narrative_mood']}")
+    else:
+        print("❌")
     
     # Subject
-    print("    📚 Subject...")
+    print("    📚 Subject...", end=" ", flush=True)
     resp = api_post(token, 
         f'/api/v0/video-narrative-metadata/datasets/{dataset_id}/videos/{video_id}/subject',
         {}
     )
-    if resp and 'subjects' in resp:
+    if resp and 'subjects' in resp and resp['subjects']:
         metadata['video_narrative_subject'] = ', '.join(resp['subjects'])
-        print(f"       ✅ {metadata['video_narrative_subject']}")
+        fields.append('subject')
+        print(f"✅ {metadata['video_narrative_subject']}")
+    else:
+        print("❌")
     
     # Format
-    print("    🎞️ Format...")
+    print("    🎞️ Format...", end=" ", flush=True)
     resp = api_post(token, 
         f'/api/v0/video-narrative-metadata/datasets/{dataset_id}/videos/{video_id}/format',
         {}
     )
-    if resp and 'formats' in resp:
+    if resp and 'formats' in resp and resp['formats']:
         metadata['video_narrative_format'] = ', '.join(resp['formats'])
-        print(f"       ✅ {metadata['video_narrative_format']}")
+        fields.append('format')
+        print(f"✅ {metadata['video_narrative_format']}")
+    else:
+        print("❌")
     
     # Caption Keyframes (async)
-    print("    🖼️ Keyframes...")
+    print("    🖼️ Keyframes...", end=" ", flush=True)
     resp = api_post(token, 
         f'/api/v0/video-summarization/datasets/{dataset_id}/videos/{video_id}/caption-keyframes',
         {}
     )
-    if resp and 'message' in resp:
+    if resp and ('message' in resp or 'keyframe_captions' in resp):
         metadata['video_narrative_keyframes_requested'] = 'true'
-        print(f"       ✅ {resp['message'][:60]}")
+        fields.append('keyframes')
+        print("✅ (triggered)")
+    else:
+        print("❌")
     
     # Add metadata source and timestamp
-    metadata['video_narrative_metadata_source'] = 'Coactive Video Narrative API'
-    metadata['video_narrative_metadata_generated_at'] = datetime.now(timezone.utc).isoformat()
+    if metadata:
+        metadata['video_narrative_metadata_source'] = 'Coactive Video Narrative API'
+        metadata['video_narrative_metadata_generated_at'] = datetime.now(timezone.utc).isoformat()
     
-    return metadata
+    return metadata, fields
 
 
 def update_video_metadata(token, dataset_id, video_id, metadata):
@@ -220,9 +386,20 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # First time: setup metadata values then run enrichment
+  python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-metadata
+
+  # Run enrichment only (metadata values already configured)
   python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN
+
+  # Process a single video
   python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --video-id VIDEO_ID
+
+  # Custom summary intent
   python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --intent "Focus on action scenes"
+
+Note: Genre, Mood, Subject, and Format require metadata values to be set up first.
+      Use --setup-metadata on first run to create the classification categories.
         """
     )
     
@@ -230,14 +407,18 @@ Examples:
                         help='Coactive Dataset ID (UUID)')
     parser.add_argument('--token', '-t', required=True,
                         help='Coactive Refresh Token (Personal Token)')
+    parser.add_argument('--setup-metadata', action='store_true',
+                        help='Setup metadata values (genre, mood, subject, format) before enrichment')
+    parser.add_argument('--setup-only', action='store_true',
+                        help='Only setup metadata values, do not run enrichment')
     parser.add_argument('--video-id', '-v',
                         help='Process only this specific video ID')
     parser.add_argument('--intent', '-i',
                         help='Custom summary intent (default: comprehensive summary)')
     parser.add_argument('--limit', '-l', type=int, default=100,
                         help='Max number of videos to process (default: 100)')
-    parser.add_argument('--delay', type=float, default=1.0,
-                        help='Delay between videos in seconds (default: 1.0)')
+    parser.add_argument('--delay', type=float, default=0.5,
+                        help='Delay between videos in seconds (default: 0.5)')
     
     args = parser.parse_args()
     
@@ -248,6 +429,8 @@ Examples:
     print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     if args.intent:
         print(f"Custom Intent: {args.intent}")
+    if args.setup_metadata or args.setup_only:
+        print("Setup Metadata: Yes")
     print("=" * 80)
     
     # Authenticate
@@ -265,6 +448,14 @@ Examples:
         print(f"   Name: {ds_info.get('name', 'Unknown')}")
         print(f"   Status: {ds_info.get('status', 'Unknown')}")
         print(f"   Videos: {ds_info.get('videoCount', 0)}")
+    
+    # Setup metadata values if requested
+    if args.setup_metadata or args.setup_only:
+        setup_metadata_values(token, args.dataset_id)
+        
+        if args.setup_only:
+            print("\n✅ Metadata setup complete. Run without --setup-only to enrich videos.")
+            return
     
     # Get videos
     if args.video_id:
@@ -293,30 +484,25 @@ Examples:
         title = (existing_meta.get('original_title') or 
                  existing_meta.get('imdb_title') or 
                  existing_meta.get('extracted_title') or 
-                 filename)
+                 filename)[:50]
         
         print(f"\n[{idx}/{len(videos)}] 🎬 {title}")
         print(f"    ID: {video_id}")
         
         # Get narrative metadata
-        metadata = get_narrative_metadata(token, args.dataset_id, video_id, args.intent)
+        metadata, fields = get_narrative_metadata(token, args.dataset_id, video_id, args.intent)
         
-        # Check if we got meaningful metadata (more than just source and timestamp)
-        meaningful_fields = len([k for k in metadata.keys() 
-                                if k not in ['video_narrative_metadata_source', 
-                                           'video_narrative_metadata_generated_at']])
-        
-        if meaningful_fields > 0:
-            print(f"    💾 Updating ({len(metadata)} fields)...")
+        if len(fields) > 0:
+            print(f"    💾 Saving {len(fields)} fields...")
             if update_video_metadata(token, args.dataset_id, video_id, metadata):
-                print("       ✅ Metadata updated!")
-                results.append({'video': title, 'status': 'success', 'fields': len(metadata)})
+                print("       ✅ Saved!")
+                results.append({'video': title, 'status': 'success', 'fields': fields})
             else:
-                print("       ❌ Metadata update failed")
-                results.append({'video': title, 'status': 'update_failed'})
+                print("       ❌ Save failed")
+                results.append({'video': title, 'status': 'save_failed', 'fields': fields})
         else:
-            print("    ❌ No metadata retrieved from APIs")
-            results.append({'video': title, 'status': 'no_metadata'})
+            print("    ❌ No metadata retrieved")
+            results.append({'video': title, 'status': 'no_metadata', 'fields': []})
         
         # Rate limiting
         if idx < len(videos):
@@ -326,18 +512,25 @@ Examples:
     print("\n" + "=" * 80)
     print("📊 ENRICHMENT SUMMARY")
     print("=" * 80)
-    success = len([r for r in results if r['status'] == 'success'])
-    failed = len([r for r in results if r['status'] != 'success'])
     
-    print(f"✅ Successfully enriched: {success}/{len(results)}")
-    if failed > 0:
-        print(f"❌ Failed: {failed}/{len(results)}")
+    full_success = len([r for r in results if len(r.get('fields', [])) >= 5])
+    partial = len([r for r in results if 0 < len(r.get('fields', [])) < 5])
+    failed = len([r for r in results if len(r.get('fields', [])) == 0])
     
-    print()
+    print(f"✅ Full (5+ fields): {full_success}")
+    print(f"⚠️  Partial: {partial}")
+    print(f"❌ Failed: {failed}")
+    
+    # Collect all field types
+    all_fields = set()
     for r in results:
-        status_icon = "✅" if r['status'] == 'success' else "❌"
-        fields = f"({r.get('fields', 0)} fields)" if r['status'] == 'success' else f"({r['status']})"
-        print(f"  {status_icon} {r['video']} {fields}")
+        all_fields.update(r.get('fields', []))
+    
+    if all_fields:
+        print(f"\n📋 Fields captured: {', '.join(sorted(all_fields))}")
+    
+    if 'genre' not in all_fields or 'mood' not in all_fields:
+        print("\n💡 Tip: If genre/mood/subject/format are missing, run with --setup-metadata")
     
     print(f"\n🔗 View in Coactive: https://app.coactive.ai/datasets/{args.dataset_id}")
     print("=" * 80)
@@ -345,4 +538,3 @@ Examples:
 
 if __name__ == "__main__":
     main()
-

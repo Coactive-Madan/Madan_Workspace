@@ -1,155 +1,135 @@
-# Coactive Video Narrative Metadata Enrichment
+# Coactive Narrative Metadata Enrichment
 
-A Python script to automatically enrich video assets in Coactive with AI-generated narrative metadata using the Coactive Video Narrative APIs.
+Generate AI-powered narrative metadata for videos in a Coactive dataset using the Video Narrative Metadata API.
 
-## Features
+## Overview
 
-- **Video Summary** - Comprehensive plot/content summary with customizable intent
-- **Video Description** - Marketing-style description for catalogs
-- **Genre Classification** - Automatic genre detection (Drama, Comedy, Action, etc.)
-- **Mood Analysis** - Emotional tone (Intense, Heartwarming, Humorous, etc.)
-- **Subject Extraction** - Main themes and topics
-- **Format Detection** - Presentation style (Feature Film, Documentary, Stand-up Special, etc.)
-- **Keyframe Captioning** - AI captions for video keyframes (async)
+This script automatically enriches videos with:
+- **Summary** - AI-generated comprehensive summary
+- **Description** - Detailed video description
+- **Genre** - Classification (Awards Show, Documentary, Talk Show, etc.)
+- **Mood** - Emotional tone (Celebratory, Emotional, Exciting, etc.)
+- **Subject** - Topic classification (Music, Celebrity, Awards, etc.)
+- **Format** - Content format (Speech, Performance, Interview, etc.)
+- **Keyframe Captions** - AI-generated captions for key frames (async)
 
-## Requirements
+## Important: Metadata Setup
 
-- Python 3.7+
-- `curl` command-line tool
-- Coactive API access (Personal Token)
+**For genre, mood, subject, and format to work, you must first create the classification values.**
 
-## Installation
+The API needs to know what categories are available before it can classify videos. Run with `--setup-metadata` on first use:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/coactive-narrative-enrichment.git
-cd coactive-narrative-enrichment
+# First time setup - creates classification categories
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-metadata
 ```
 
-No additional dependencies required - uses only Python standard library and curl.
+This creates default values like:
+- **Genre**: Awards Show, Documentary, Reality TV, Talk Show, Music Video
+- **Mood**: Celebratory, Emotional, Exciting, Inspiring, Nostalgic
+- **Subject**: Music, Celebrity, Awards, Fashion, Entertainment Industry
+- **Format**: Speech, Performance, Interview, Highlight Reel, Behind The Scenes
 
 ## Usage
 
-### Basic Usage
-
 ```bash
-python3 coactive_narrative_enrichment.py -d DATASET_ID -t YOUR_TOKEN
-```
+# Setup metadata values and run enrichment
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-metadata
 
-### Options
+# Run enrichment only (after metadata is already configured)
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--dataset-id` | `-d` | Coactive Dataset ID (required) |
-| `--token` | `-t` | Coactive Personal/Refresh Token (required) |
-| `--video-id` | `-v` | Process only a specific video |
-| `--intent` | `-i` | Custom summary intent/prompt |
-| `--limit` | `-l` | Max videos to process (default: 100) |
-| `--delay` | | Delay between videos in seconds (default: 1.0) |
-
-### Examples
-
-```bash
-# Enrich all videos in a dataset
-python3 coactive_narrative_enrichment.py \
-  -d d2fae475-4ebd-46ac-8bad-af2c5a784b43 \
-  -t YOUR_COACTIVE_TOKEN
+# Setup metadata values only (no enrichment)
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-only
 
 # Process a single video
-python3 coactive_narrative_enrichment.py \
-  -d DATASET_ID -t TOKEN \
-  -v a0c6b150-3606-4e08-ae37-3efe37615868
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --video-id VIDEO_UUID
 
-# Custom summary focus
-python3 coactive_narrative_enrichment.py \
-  -d DATASET_ID -t TOKEN \
-  --intent "Focus on action scenes and character development"
+# Custom summary intent
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --intent "Focus on action scenes"
 
-# Limit to first 10 videos
-python3 coactive_narrative_enrichment.py \
-  -d DATASET_ID -t TOKEN \
-  --limit 10
+# Limit number of videos
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --limit 10
 ```
 
-## Output
+## Options
 
-The script adds the following metadata fields to each video:
-
-| Field | Description |
-|-------|-------------|
-| `video_narrative_summary` | Comprehensive content summary |
-| `video_narrative_description` | Marketing-style description |
-| `video_narrative_genre` | Genre classification |
-| `video_narrative_mood` | Emotional tone |
-| `video_narrative_subject` | Main themes/topics |
-| `video_narrative_format` | Presentation style |
-| `video_narrative_keyframes_requested` | Keyframe captioning status |
-| `video_narrative_metadata_source` | API source identifier |
-| `video_narrative_metadata_generated_at` | ISO timestamp |
+| Option | Description |
+|--------|-------------|
+| `-d, --dataset-id` | Coactive Dataset ID (required) |
+| `-t, --token` | Coactive Refresh Token (required) |
+| `--setup-metadata` | Create classification values before enrichment |
+| `--setup-only` | Only create metadata values, don't enrich |
+| `-v, --video-id` | Process only this specific video |
+| `-i, --intent` | Custom summary intent |
+| `-l, --limit` | Max videos to process (default: 100) |
+| `--delay` | Delay between videos in seconds (default: 0.5) |
 
 ## API Endpoints Used
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /api/v0/login` | Authentication |
-| `GET /api/v1/datasets/{id}` | Dataset info |
-| `GET /api/v1/datasets/{id}/videos` | List videos |
-| `POST /api/v0/video-summarization/.../summarize` | Generate summary |
-| `POST /api/v0/video-narrative-metadata/.../description` | Generate description |
-| `POST /api/v0/video-narrative-metadata/.../genre` | Detect genre |
-| `POST /api/v0/video-narrative-metadata/.../mood` | Analyze mood |
-| `POST /api/v0/video-narrative-metadata/.../subject` | Extract subjects |
-| `POST /api/v0/video-narrative-metadata/.../format` | Detect format |
-| `POST /api/v0/video-summarization/.../caption-keyframes` | Caption keyframes |
-| `POST /api/v1/ingestion/metadata` | Update metadata |
+| `POST /api/v0/login` | Exchange refresh token for JWT |
+| `POST /api/v0/video-narrative-metadata/metadata` | Create classification values |
+| `GET /api/v0/video-narrative-metadata/metadata` | Get existing classification values |
+| `POST /api/v0/video-summarization/.../summarize` | Generate video summary |
+| `POST /api/v0/video-narrative-metadata/.../description` | Get description |
+| `POST /api/v0/video-narrative-metadata/.../genre` | Classify genre |
+| `POST /api/v0/video-narrative-metadata/.../mood` | Classify mood |
+| `POST /api/v0/video-narrative-metadata/.../subject` | Classify subject |
+| `POST /api/v0/video-narrative-metadata/.../format` | Classify format |
+| `POST /api/v0/video-summarization/.../caption-keyframes` | Trigger keyframe captioning |
+| `POST /api/v1/ingestion/metadata` | Update video metadata |
 
-## Sample Output
+## Custom Metadata Values
 
-```
-================================================================================
-🎬 COACTIVE NARRATIVE METADATA ENRICHMENT
-================================================================================
-Dataset: d2fae475-4ebd-46ac-8bad-af2c5a784b43
-Time: 2025-12-15 14:28:55
-================================================================================
-✅ Authenticated
-📹 Found 5 videos
+You can customize the classification values by modifying `DEFAULT_METADATA_VALUES` in the script:
 
-[1/5] 🎬 3:10 to Yuma
-    ID: a0c6b150-3606-4e08-ae37-3efe37615868
-    📝 Summary...
-       ✅ Got summary (1305 chars)
-    📄 Description...
-       ✅ Got description
-    🎬 Genre...
-       ✅ Drama, Western
-    🎭 Mood...
-       ✅ Intense, Dramatic, Tense
-    📚 Subject...
-       ✅ Redemption, Survival, Justice, Family
-    🎞️ Format...
-       ✅ Feature Film
-    🖼️ Keyframes...
-       ✅ Captions already exist (1825 keyframes)
-    💾 Updating (9 fields)...
-       ✅ Metadata updated!
-
-================================================================================
-📊 ENRICHMENT SUMMARY
-================================================================================
-✅ Successfully enriched: 5/5
+```python
+DEFAULT_METADATA_VALUES = {
+    "genre": [
+        {
+            "name": "Your Genre",
+            "description": "Description of this genre",
+            "examples": ["Example 1", "Example 2"]
+        },
+        # ... more genres
+    ],
+    "mood": [...],
+    "subject": [...],
+    "format": [...],
+}
 ```
 
-## Getting Your Coactive Token
+## Output
 
-1. Log in to [Coactive](https://app.coactive.ai)
-2. Go to **Settings** → **Credentials**
-3. Copy your **Personal Token**
+Each video will have metadata fields added:
+- `video_narrative_summary`
+- `video_narrative_description`
+- `video_narrative_genre`
+- `video_narrative_mood`
+- `video_narrative_subject`
+- `video_narrative_format`
+- `video_narrative_keyframes_requested`
+- `video_narrative_metadata_source`
+- `video_narrative_metadata_generated_at`
 
-## License
+## Troubleshooting
 
-MIT License
+| Issue | Solution |
+|-------|----------|
+| Genre/Mood/Subject/Format return empty | Run with `--setup-metadata` first |
+| "No metadata values found" | Classification values not created yet |
+| "Internal Server Error" on summary | Dataset may need encoder configured |
+| Auth failed | Token expired, get a new one |
+
+## Requirements
+
+- Python 3.7+
+- `curl` (used for API calls)
+- Coactive account with API access
 
 ## Author
 
-Created for Lionsgate POC - December 2025
-
+Madan - Coactive AI  
+December 2025
