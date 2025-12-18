@@ -24,20 +24,20 @@ import shutil
 
 
 # ============================================================================
-# CONFIGURATION
+# CONFIGURATION - Set these via environment variables or modify directly
 # ============================================================================
 
 # Paths
-FFMPEG_PATH = "/Users/madan/Downloads/ffmpeg"
-FFPROBE_PATH = "/Users/madan/Downloads/ffprobe"
-CSV_FILE = "/Users/madan/Downloads/results-6ed5f51a-3a2d-4744-bd78-8376f9d446a2.csv"
-WORK_DIR = "/Users/madan/Downloads/audio_processing"
-OUTPUT_DIR = "/Users/madan/Downloads/audio_processed"
+FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
+FFPROBE_PATH = os.environ.get("FFPROBE_PATH", "ffprobe")
+CSV_FILE = os.environ.get("CSV_FILE", "./failed_uploads.csv")
+WORK_DIR = os.environ.get("WORK_DIR", "./audio_processing")
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "./audio_processed")
 
 # S3 Configuration
-S3_BUCKET = "coactive-ai-video-samples"
-OUTPUT_S3_BUCKET = "coactive-ai-video-samples"  # Same bucket, different prefix
-OUTPUT_S3_PREFIX = "processed/"
+S3_BUCKET = os.environ.get("S3_BUCKET", "your-source-bucket")
+OUTPUT_S3_BUCKET = os.environ.get("OUTPUT_S3_BUCKET", "your-output-bucket")
+OUTPUT_S3_PREFIX = os.environ.get("OUTPUT_S3_PREFIX", "processed/")
 
 # Processing Options
 DRY_RUN = True  # Set to False to actually process files

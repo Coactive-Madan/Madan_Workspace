@@ -9,15 +9,16 @@ import subprocess
 import json
 from pathlib import Path
 
-# Configuration
-INPUT_DIR = "/Users/madan/Downloads/audio_processing"
-OUTPUT_DIR = "/Users/madan/Downloads/audio_processing_output"
-FFMPEG = "/Users/madan/Downloads/ffmpeg"
-FFPROBE = "/Users/madan/Downloads/ffprobe"
+# Configuration - Set these for your environment
+INPUT_DIR = os.environ.get("INPUT_DIR", "./audio_input")
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "./audio_output")
+FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
+FFPROBE = os.environ.get("FFPROBE_PATH", "ffprobe")
 
-S3_BUCKET = "s3://coactive-ingestion-transient-production/org_sgVH8OmDi0mpgIxc/coactive/Nielsen_Data_V2_1764649381520/extracted_audio/"
+# S3 destination bucket - set via environment variable
+S3_BUCKET = os.environ.get("S3_BUCKET", "s3://your-bucket/path/")
 
-DRY_RUN = False  # Set to False to actually process and upload
+DRY_RUN = True  # Set to False to actually process and upload
 
 def get_audio_channels(filepath):
     """Get number of audio channels in file."""

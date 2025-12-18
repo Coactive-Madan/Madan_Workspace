@@ -17,19 +17,19 @@ import requests
 from pathlib import Path
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION - Set these via environment variables
 # =============================================================================
 
 # Coactive API Configuration
-COACTIVE_API_KEY = "xhSWjZhY7kUeB3E9SJS8R8LgOP-P1V0Tklu0SdyvED747"
+COACTIVE_API_KEY = os.environ.get("COACTIVE_API_KEY", "")
 COACTIVE_BASE_URL = "https://api.coactive.ai"
 COACTIVE_AUTH_URL = f"{COACTIVE_BASE_URL}/v1/auth/token"
 
 # Dataset Information
-DATASET_ID = "6f8cca8f-67d2-4212-ae0b-e4195194bad2"
+DATASET_ID = os.environ.get("COACTIVE_DATASET_ID", "")
 
 # Directory containing seed images
-SEED_IMAGES_DIR = "/Users/madan/Downloads"
+SEED_IMAGES_DIR = os.environ.get("SEED_IMAGES_DIR", "./seed_images")
 
 # Artists to enroll (add more as needed)
 ARTISTS = [
