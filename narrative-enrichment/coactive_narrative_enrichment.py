@@ -445,6 +445,88 @@ def format_segments_for_metadata(segments):
     return segments_json, chapters_text
 
 
+def get_video_entities(token, dataset_id, video_id):
+    """
+    Extract people, celebrities, artists, and notable entities from a video.
+    
+    Returns a list of entities, each containing:
+    - name: Entity name
+    - role: List of roles (speaker, performer, mentioned, audience, etc.)
+    - context: Description of their appearance/mention
+    """
+    print("    🧑 Detecting entities...", end=" ", flush=True)
+    
+    entity_intent = (
+        "Identify all people, celebrities, artists, and notable entities that appear "
+        "or are mentioned in this video. For each person, note their role (speaker, "
+        "performer, mentioned, audience) and any context about them."
+    )
+    
+    resp = api_post(token, 
+        f'/api/v0/video-summarization/datasets/{dataset_id}/videos/{video_id}/summarize',
+        {"summary_intent": entity_intent}
+    )
+    
+    if resp:
+        # Check if response is already a list of entities
+        if isinstance(resp, list):
+            print(f"✅ Found {len(resp)} entities")
+            return resp
+        # Check if summary contains entity data
+        elif 'summary' in resp:
+            summary = resp['summary']
+            if isinstance(summary, list):
+                print(f"✅ Found {len(summary)} entities")
+                return summary
+            elif isinstance(summary, str):
+                # Try to parse as JSON if it's a string
+                try:
+                    entities = json.loads(summary)
+                    if isinstance(entities, list):
+                        print(f"✅ Found {len(entities)} entities")
+                        return entities
+                except:
+                    pass
+                # Return as single entity if it's just text
+                print("✅ (text description)")
+                return [{"description": summary}]
+    
+    print("❌")
+    return []
+
+
+def format_entities_for_metadata(entities):
+    """
+    Format entities list for storage in metadata.
+    Creates JSON string and a list of people names.
+    """
+    if not entities:
+        return None, None
+    
+    # Extract just the names for quick reference
+    people_names = []
+    for entity in entities:
+        name = entity.get('name', '')
+        if name and not any(skip in name.lower() for skip in ['audience', 'unspecified', 'unknown']):
+            # Clean up name
+            clean_name = name.split('(')[0].strip()  # Remove parenthetical notes
+            if clean_name and len(clean_name) > 1:
+                people_names.append(clean_name)
+    
+    # Deduplicate while preserving order
+    seen = set()
+    unique_names = []
+    for name in people_names:
+        if name.lower() not in seen:
+            seen.add(name.lower())
+            unique_names.append(name)
+    
+    people_list = ", ".join(unique_names[:20])  # Limit to top 20
+    entities_json = json.dumps(entities)
+    
+    return entities_json, people_list
+
+
 def update_video_metadata(token, dataset_id, video_id, metadata):
     """Update video with narrative metadata."""
     payload = {
@@ -503,6 +585,10 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
                         help='Detect video segments/chapters with timestamps')
     parser.add_argument('--segments-only', action='store_true',
                         help='Only detect segments, skip other metadata')
+    parser.add_argument('--entities', '-e', action='store_true',
+                        help='Extract people, celebrities, and notable entities')
+    parser.add_argument('--entities-only', action='store_true',
+                        help='Only extract entities, skip other metadata')
     parser.add_argument('--video-id', '-v',
                         help='Process only this specific video ID')
     parser.add_argument('--intent', '-i',
@@ -525,6 +611,8 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
         print("Setup Metadata: Yes")
     if args.segments or args.segments_only:
         print("Segment Detection: Yes")
+    if args.entities or args.entities_only:
+        print("Entity Extraction: Yes")
     print("=" * 80)
     
     # Authenticate
@@ -597,8 +685,19 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
                     metadata['video_segment_count'] = str(len(segments))
                     fields.append('segments')
         
-        # Get other narrative metadata (unless segments-only mode)
-        if not args.segments_only:
+        # Get entity/people extraction if requested
+        if args.entities or args.entities_only:
+            entities = get_video_entities(token, args.dataset_id, video_id)
+            if entities:
+                entities_json, people_list = format_entities_for_metadata(entities)
+                if entities_json:
+                    metadata['video_entities'] = entities_json
+                    metadata['video_people'] = people_list
+                    metadata['video_entity_count'] = str(len(entities))
+                    fields.append('entities')
+        
+        # Get other narrative metadata (unless segments-only or entities-only mode)
+        if not args.segments_only and not args.entities_only:
             narrative_metadata, narrative_fields = get_narrative_metadata(token, args.dataset_id, video_id, args.intent)
             metadata.update(narrative_metadata)
             fields.extend(narrative_fields)

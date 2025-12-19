@@ -11,7 +11,8 @@ This script automatically enriches videos with:
 - **Mood** - Emotional tone (Celebratory, Emotional, Exciting, etc.)
 - **Subject** - Topic classification (Music, Celebrity, Awards, etc.)
 - **Format** - Content format (Speech, Performance, Interview, etc.)
-- **Segments** - Scene/chapter detection with timestamps 🆕
+- **Segments** - Scene/chapter detection with timestamps
+- **Entities** - People, celebrities, and notable entity extraction 🆕
 - **Keyframe Captions** - AI-generated captions for key frames (async)
 
 ## Important: Metadata Setup
@@ -69,6 +70,8 @@ python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --limit 10
 | `--setup-only` | Only create metadata values, don't enrich |
 | `-s, --segments` | Detect video segments/chapters with timestamps |
 | `--segments-only` | Only detect segments, skip other metadata |
+| `-e, --entities` | Extract people, celebrities, and notable entities |
+| `--entities-only` | Only extract entities, skip other metadata |
 | `-v, --video-id` | Process only this specific video |
 | `-i, --intent` | Custom summary intent |
 | `-l, --limit` | Max videos to process (default: 100) |
@@ -106,6 +109,48 @@ Each segment contains:
 [0:24-0:53] Personal story about motherhood
 [0:53-1:18] Tribute to Beyoncé
 [1:18-1:44] Closing thanks
+```
+
+## Entity Extraction
+
+The `--entities` flag extracts people, celebrities, artists, and notable entities from videos.
+
+### Output Fields
+
+| Field | Description |
+|-------|-------------|
+| `video_entities` | JSON array of entities with roles and context |
+| `video_people` | Comma-separated list of people names |
+| `video_entity_count` | Number of entities detected |
+
+### Entity Data Structure
+
+Each entity contains:
+```json
+{
+  "name": "Beyoncé",
+  "role": ["mentioned artist", "inspiration"],
+  "context": "Praised for Lemonade album, called 'artist of my life'"
+}
+```
+
+### Example People Output
+
+```
+video_people: Beyoncé, Adele, Mark Hoppus, Kenny Wayne Shepherd, Tori Kelly
+```
+
+### Usage
+
+```bash
+# Extract entities + all other metadata
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --entities
+
+# Only extract entities (faster)
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --entities-only
+
+# Combine with segments
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --segments --entities
 ```
 
 ## API Endpoints Used
