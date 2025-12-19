@@ -9,6 +9,7 @@ Runs Coactive Video Narrative APIs on all videos in a dataset and updates metada
 - Video Mood
 - Video Subject
 - Video Format
+- Video Segments (scene/chapter detection with timestamps)
 - Caption Keyframes (async)
 
 IMPORTANT: For genre, mood, subject, and format to work, you must first define
@@ -21,6 +22,9 @@ Usage:
     
     # Run enrichment
     python3 coactive_narrative_enrichment.py -d <DATASET_ID> -t <TOKEN>
+    
+    # Run with segment detection (scene/chapter timestamps)
+    python3 coactive_narrative_enrichment.py -d <DATASET_ID> -t <TOKEN> --segments
 
 Examples:
     # Setup metadata values and run enrichment
@@ -28,6 +32,9 @@ Examples:
     
     # Run enrichment only (metadata values already exist)
     python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN
+    
+    # Run with segment/chapter detection
+    python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --segments
     
     # Run with custom summary intent
     python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --intent "Summarize key action scenes"
@@ -360,6 +367,84 @@ def get_narrative_metadata(token, dataset_id, video_id, summary_intent=None):
     return metadata, fields
 
 
+def get_video_segments(token, dataset_id, video_id):
+    """
+    Detect scenes/chapters/segments in a video with timestamps.
+    
+    Returns a list of segments, each containing:
+    - segment_start: Start time in seconds
+    - segment_end: End time in seconds
+    - description: What happens in this segment
+    - transition_or_topic_change: Description of the transition
+    """
+    print("    🎬 Detecting segments...", end=" ", flush=True)
+    
+    segment_intent = (
+        "Identify distinct scenes, segments, or chapters in this video. "
+        "For each segment, describe what happens and note any transitions or topic changes."
+    )
+    
+    resp = api_post(token, 
+        f'/api/v0/video-summarization/datasets/{dataset_id}/videos/{video_id}/summarize',
+        {"summary_intent": segment_intent}
+    )
+    
+    # The API returns segments as a list when given this intent
+    if resp:
+        # Check if response is already a list of segments
+        if isinstance(resp, list):
+            print(f"✅ Found {len(resp)} segments")
+            return resp
+        # Check if summary contains segment data
+        elif 'summary' in resp:
+            summary = resp['summary']
+            if isinstance(summary, list):
+                print(f"✅ Found {len(summary)} segments")
+                return summary
+            elif isinstance(summary, str):
+                # Try to parse as JSON if it's a string
+                try:
+                    segments = json.loads(summary)
+                    if isinstance(segments, list):
+                        print(f"✅ Found {len(segments)} segments")
+                        return segments
+                except:
+                    pass
+                # Return as single segment if it's just text
+                print("✅ (text summary)")
+                return [{"description": summary}]
+    
+    print("❌")
+    return []
+
+
+def format_segments_for_metadata(segments):
+    """
+    Format segments list for storage in metadata.
+    Creates both a JSON string and a human-readable summary.
+    """
+    if not segments:
+        return None, None
+    
+    # Create human-readable chapter list
+    chapters = []
+    for i, seg in enumerate(segments, 1):
+        start = seg.get('segment_start', 0)
+        end = seg.get('segment_end', 0)
+        desc = seg.get('description', '')[:100]
+        
+        # Format timestamp as MM:SS
+        start_str = f"{int(start//60)}:{int(start%60):02d}"
+        end_str = f"{int(end//60)}:{int(end%60):02d}"
+        
+        chapters.append(f"[{start_str}-{end_str}] {desc}")
+    
+    chapters_text = "\n".join(chapters)
+    segments_json = json.dumps(segments)
+    
+    return segments_json, chapters_text
+
+
 def update_video_metadata(token, dataset_id, video_id, metadata):
     """Update video with narrative metadata."""
     payload = {
@@ -392,6 +477,9 @@ Examples:
   # Run enrichment only (metadata values already configured)
   python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN
 
+  # Run with segment/chapter detection
+  python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --segments
+
   # Process a single video
   python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --video-id VIDEO_ID
 
@@ -411,6 +499,10 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
                         help='Setup metadata values (genre, mood, subject, format) before enrichment')
     parser.add_argument('--setup-only', action='store_true',
                         help='Only setup metadata values, do not run enrichment')
+    parser.add_argument('--segments', '-s', action='store_true',
+                        help='Detect video segments/chapters with timestamps')
+    parser.add_argument('--segments-only', action='store_true',
+                        help='Only detect segments, skip other metadata')
     parser.add_argument('--video-id', '-v',
                         help='Process only this specific video ID')
     parser.add_argument('--intent', '-i',
@@ -431,6 +523,8 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
         print(f"Custom Intent: {args.intent}")
     if args.setup_metadata or args.setup_only:
         print("Setup Metadata: Yes")
+    if args.segments or args.segments_only:
+        print("Segment Detection: Yes")
     print("=" * 80)
     
     # Authenticate
@@ -489,8 +583,25 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
         print(f"\n[{idx}/{len(videos)}] 🎬 {title}")
         print(f"    ID: {video_id}")
         
-        # Get narrative metadata
-        metadata, fields = get_narrative_metadata(token, args.dataset_id, video_id, args.intent)
+        metadata = {}
+        fields = []
+        
+        # Get segment/chapter detection if requested
+        if args.segments or args.segments_only:
+            segments = get_video_segments(token, args.dataset_id, video_id)
+            if segments:
+                segments_json, chapters_text = format_segments_for_metadata(segments)
+                if segments_json:
+                    metadata['video_segments'] = segments_json
+                    metadata['video_chapters'] = chapters_text
+                    metadata['video_segment_count'] = str(len(segments))
+                    fields.append('segments')
+        
+        # Get other narrative metadata (unless segments-only mode)
+        if not args.segments_only:
+            narrative_metadata, narrative_fields = get_narrative_metadata(token, args.dataset_id, video_id, args.intent)
+            metadata.update(narrative_metadata)
+            fields.extend(narrative_fields)
         
         if len(fields) > 0:
             print(f"    💾 Saving {len(fields)} fields...")

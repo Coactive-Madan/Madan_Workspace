@@ -11,6 +11,7 @@ This script automatically enriches videos with:
 - **Mood** - Emotional tone (Celebratory, Emotional, Exciting, etc.)
 - **Subject** - Topic classification (Music, Celebrity, Awards, etc.)
 - **Format** - Content format (Speech, Performance, Interview, etc.)
+- **Segments** - Scene/chapter detection with timestamps 🆕
 - **Keyframe Captions** - AI-generated captions for key frames (async)
 
 ## Important: Metadata Setup
@@ -39,6 +40,12 @@ python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-metadata
 # Run enrichment only (after metadata is already configured)
 python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN
 
+# Run with segment/chapter detection (with timestamps)
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --segments
+
+# Run segment detection only (skip other metadata)
+python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --segments-only
+
 # Setup metadata values only (no enrichment)
 python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-only
 
@@ -60,10 +67,46 @@ python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --limit 10
 | `-t, --token` | Coactive Refresh Token (required) |
 | `--setup-metadata` | Create classification values before enrichment |
 | `--setup-only` | Only create metadata values, don't enrich |
+| `-s, --segments` | Detect video segments/chapters with timestamps |
+| `--segments-only` | Only detect segments, skip other metadata |
 | `-v, --video-id` | Process only this specific video |
 | `-i, --intent` | Custom summary intent |
 | `-l, --limit` | Max videos to process (default: 100) |
 | `--delay` | Delay between videos in seconds (default: 0.5) |
+
+## Segment Detection
+
+The `--segments` flag enables scene/chapter detection, which identifies distinct segments in videos with timestamps.
+
+### Output Fields
+
+| Field | Description |
+|-------|-------------|
+| `video_segments` | JSON array of segments with timestamps |
+| `video_chapters` | Human-readable chapter list |
+| `video_segment_count` | Number of segments detected |
+
+### Segment Data Structure
+
+Each segment contains:
+```json
+{
+  "segment_start": 0.0,
+  "segment_end": 24.2,
+  "description": "Opening ceremony atmosphere with stage setup...",
+  "transition_or_topic_change": "Shift from intro to main content"
+}
+```
+
+### Example Chapters Output
+
+```
+[0:00-0:03] Opening ceremony atmosphere
+[0:03-0:24] Acceptance speech begins
+[0:24-0:53] Personal story about motherhood
+[0:53-1:18] Tribute to Beyoncé
+[1:18-1:44] Closing thanks
+```
 
 ## API Endpoints Used
 
