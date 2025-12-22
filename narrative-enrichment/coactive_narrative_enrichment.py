@@ -73,34 +73,49 @@ APP_BASE_URL = "https://app.coactive.ai"
 
 # Default metadata values for classification
 # These define what categories the API can classify videos into
+# Includes both entertainment and news content categories
 DEFAULT_METADATA_VALUES = {
     "genre": [
+        # Entertainment
         {"name": "Awards Show", "description": "Content featuring award ceremonies, acceptance speeches, and recognition events", "examples": ["Grammy Awards ceremony", "Artist receiving award on stage", "Acceptance speech"]},
         {"name": "Documentary", "description": "Non-fiction content documenting real events and people", "examples": ["Behind the scenes footage", "Event documentation"]},
         {"name": "Reality TV", "description": "Unscripted reality television content", "examples": ["Red carpet coverage", "Live event footage"]},
         {"name": "Talk Show", "description": "Interview and conversation format programming", "examples": ["Celebrity interview", "Artist Q&A"]},
         {"name": "Music Video", "description": "Music video or performance content", "examples": ["Artist performance", "Music clip"]},
+        # News
+        {"name": "News Program", "description": "Television news program genre", "examples": ["CBS Evening News", "NBC Nightly News", "Breaking news coverage"]},
+        {"name": "Current Affairs", "description": "Current affairs programming covering news and public interest topics", "examples": ["60 Minutes", "Dateline", "News magazine"]},
     ],
     "mood": [
+        # Entertainment
         {"name": "Celebratory", "description": "Joyful and celebratory atmosphere", "examples": ["Award wins", "Celebration moments"]},
         {"name": "Emotional", "description": "Touching and emotional moments", "examples": ["Heartfelt speeches", "Tearful acceptance"]},
         {"name": "Exciting", "description": "High energy and exciting content", "examples": ["Performance highlights", "Big reveals"]},
         {"name": "Inspiring", "description": "Uplifting and motivational content", "examples": ["Inspirational speeches", "Success stories"]},
         {"name": "Nostalgic", "description": "Content evoking memories and nostalgia", "examples": ["Retrospective moments", "Historical clips"]},
+        # News
+        {"name": "Serious", "description": "Serious and professional tone for important topics", "examples": ["Hard news", "Breaking news coverage"]},
     ],
     "subject": [
+        # Entertainment
         {"name": "Music", "description": "Content about music and musicians", "examples": ["Songs", "Albums", "Musical performances"]},
         {"name": "Celebrity", "description": "Celebrity-focused content", "examples": ["Famous artists", "Star appearances"]},
         {"name": "Awards", "description": "Award-related content", "examples": ["Grammy Awards", "Music awards"]},
         {"name": "Fashion", "description": "Fashion and style content", "examples": ["Red carpet fashion", "Designer outfits"]},
         {"name": "Entertainment Industry", "description": "Entertainment business content", "examples": ["Industry news", "Record labels"]},
+        # News
+        {"name": "Current Events", "description": "Coverage of current news and events", "examples": ["Daily news", "Breaking stories", "World events"]},
+        {"name": "Politics", "description": "Political news and government coverage", "examples": ["Government policy", "Elections", "Congress"]},
     ],
     "format": [
+        # Entertainment
         {"name": "Speech", "description": "Acceptance speeches and presentations", "examples": ["Award acceptance", "Thank you speech"]},
         {"name": "Performance", "description": "Live musical performances", "examples": ["Stage performance", "Live singing"]},
         {"name": "Interview", "description": "Interview format content", "examples": ["Red carpet interview", "Backstage Q&A"]},
         {"name": "Highlight Reel", "description": "Compilation and highlight content", "examples": ["Best moments", "Montage"]},
         {"name": "Behind The Scenes", "description": "Behind the scenes footage", "examples": ["Backstage footage", "Preparation clips"]},
+        # News
+        {"name": "News Broadcast", "description": "Television news broadcast format with anchors and field reports", "examples": ["Evening news show", "News desk", "Field report"]},
     ],
 }
 
