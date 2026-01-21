@@ -7,6 +7,7 @@ Collection of Coactive AI utility scripts and tools.
 | Directory | Description |
 |-----------|-------------|
 | [narrative-enrichment](./narrative-enrichment) | Generate AI metadata (summary, genre, mood, keyframes) |
+| [rlm-video-metadata](./rlm-video-metadata) | RLM-optimized video enrichment (platform-agnostic) |
 | [imdb-enrichment](./imdb-enrichment) | Enrich assets with IMDB metadata |
 | [hybe-celebrity-enrollment](./hybe-celebrity-enrollment) | Enroll celebrities for face detection |
 | [audio-processing](./audio-processing) | Audio downmix and track processing tools |
@@ -17,6 +18,14 @@ Collection of Coactive AI utility scripts and tools.
 ```bash
 cd narrative-enrichment
 python3 coactive_narrative_enrichment.py -d DATASET_ID -t TOKEN --setup-metadata
+```
+
+### RLM Video Metadata (Platform-Agnostic)
+```bash
+cd rlm-video-metadata
+# Configure your video platform API
+cp config.example.json config.json
+python3 rlm_video_enrichment.py --config config.json --dataset-id YOUR_DATASET_ID
 ```
 
 ### IMDB Enrichment
