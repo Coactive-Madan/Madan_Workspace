@@ -1,0 +1,9 @@
+{
+    "api_base_url": "https://api.your-video-platform.com",
+    "api_key": "your-api-key-here",
+    "llm_api_key": "your-openai-api-key-here",
+    "llm_model": "gpt-4o-mini",
+    "batch_size": 500,
+    "rate_limit_delay": 0.3,
+    "sample_size_for_analysis": 20
+}

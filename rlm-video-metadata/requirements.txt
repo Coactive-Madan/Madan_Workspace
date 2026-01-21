@@ -1,0 +1,4 @@
+# Core dependencies (none required - uses only stdlib)
+
+# Optional: For RLM corpus analysis
+openai>=1.0.0
