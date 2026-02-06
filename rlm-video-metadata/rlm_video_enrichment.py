@@ -34,13 +34,26 @@ Architecture:
 
 Usage:
     # Full RLM-optimized enrichment
-    python3 rlm_video_enrichment.py --config config.json
+    python3 rlm_video_enrichment.py --config config.json --dataset-id YOUR_DATASET
 
     # Analyze corpus only (no enrichment)
-    python3 rlm_video_enrichment.py --config config.json --analyze-only
+    python3 rlm_video_enrichment.py --config config.json --dataset-id YOUR_DATASET --analyze-only
 
     # Force specific enrichments (skip RLM planning)
-    python3 rlm_video_enrichment.py --config config.json --force-enrichments summary,genre,entities
+    python3 rlm_video_enrichment.py --config config.json --dataset-id YOUR_DATASET --force-enrichments summary,genre,entities
+
+    # Use NBCU Emotional Congruence Taxonomy (TV/Film content)
+    python3 rlm_video_enrichment.py --config config.json --dataset-id YOUR_DATASET --nbcu-taxonomy
+
+NBCU Emotional Congruence Taxonomy (--nbcu-taxonomy):
+    When enabled, uses optimized clustering and classification for TV content:
+    - 10 Mood categories: Dark & Enigmatic, Quirky & Comedic, Suspenseful & Adventurous, etc.
+    - 10 Theme categories: Romance & Emotional Turmoil, Identity & Hidden Agendas, etc.
+    - 8 Genre categories: Drama, Comedy, Action & Adventure, Reality & Competition, etc.
+    - 5 Format categories: Scripted Drama Series, Reality Competition, Animated Series, etc.
+
+    Clusters content by type (drama, comedy, reality, action, period, horror) and applies
+    appropriate enrichments per cluster for ad placement optimization.
 
 License: MIT
 """
@@ -84,6 +97,9 @@ class Config:
     rate_limit_delay: float = 0.3
     sample_size_for_analysis: int = 20
 
+    # NBCU Emotional Congruence Taxonomy (optional)
+    use_nbcu_taxonomy: bool = False
+
     @classmethod
     def from_file(cls, path: str) -> "Config":
         """Load configuration from JSON file."""
@@ -99,6 +115,7 @@ class Config:
             api_key=os.environ.get("VIDEO_API_KEY", ""),
             llm_api_key=os.environ.get("OPENAI_API_KEY", ""),
             llm_model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
+            use_nbcu_taxonomy=os.environ.get("USE_NBCU_TAXONOMY", "").lower() == "true",
         )
 
 
@@ -113,6 +130,110 @@ class EnrichmentType(Enum):
     SEGMENTS = "segments"
     ENTITIES = "entities"
     KEYFRAMES = "keyframes"
+
+
+# =============================================================================
+# NBCU Emotional Congruence Taxonomy (Optional)
+# =============================================================================
+
+NBCU_TAXONOMY = {
+    "mood": [
+        # 10 Mood Categories from NBCU Emotional Congruence Taxonomy
+        {"name": "Dark & Enigmatic", "description": "Mysterious, shadowy, and intense tones blending noir, supernatural, and gothic with moody avant-garde style", "examples": ["noir thriller scene", "gothic horror atmosphere", "supernatural mystery", "dark brooding mood"]},
+        {"name": "Dark Comedy & Gritty Humor", "description": "Gritty dark humor with irreverent, slapstick, and controversial tones pushing boundaries with edgy comedy", "examples": ["dark comedic scene", "irreverent satire", "gallows humor moment", "edgy controversial joke"]},
+        {"name": "Heroic & Patriotic", "description": "Grand, larger-than-life narratives with bravery, energy, and nationalism celebrating epic stories and heroic deeds", "examples": ["heroic sacrifice", "patriotic speech", "epic battle victory", "brave rescue scene"]},
+        {"name": "Mystical & Whimsical", "description": "Surreal and otherworldly tones using magical realism, psychedelic, and lyrical elements for dreamlike atmosphere", "examples": ["magical realism scene", "whimsical fantasy", "dreamlike sequence", "surreal visuals"]},
+        {"name": "Nostalgic & Dramatic", "description": "Evokes strong emotions reflecting on the past, loss, and sentimentality in heavy, melancholic, or tragic context", "examples": ["nostalgic flashback", "dramatic farewell", "bittersweet memory", "emotional loss scene"]},
+        {"name": "Quirky & Comedic", "description": "Humor and lightheartedness with quirky, goofy, and satirical tones highlighting fun and unconventional comedy", "examples": ["quirky character moment", "slapstick comedy", "absurdist humor", "sitcom funny scene"]},
+        {"name": "Suspenseful & Adventurous", "description": "High-energy suspenseful narratives with adventurous and exotic tone blending action with mystery and danger", "examples": ["chase sequence", "adventure expedition", "suspenseful reveal", "action pursuit"]},
+        {"name": "Thought-Provoking & Intellectual", "description": "Challenges the mind and provokes thought using psychological or philosophical lens blending informative with abstract", "examples": ["philosophical debate", "psychological thriller", "intellectual discourse", "moral dilemma discussion"]},
+        {"name": "Thrilling & Sinister", "description": "Exciting and intense with elements of suspense, fear, and danger creating sinister or creepy mood", "examples": ["horror reveal", "sinister villain scene", "tense thriller moment", "creepy atmosphere"]},
+        {"name": "Uplifting & Romantic", "description": "Warm, hopeful, and emotionally positive tones celebrating love, joy, and human connection", "examples": ["romantic confession", "heartwarming reunion", "triumphant celebration", "joyful moment"]},
+    ],
+    "subject": [
+        # 10 Theme Categories from NBCU Emotional Congruence Taxonomy
+        {"name": "Coming-of-Age & Life Journeys", "description": "Personal growth, self-discovery, and overcoming life's challenges involving maturity and significant change", "examples": ["graduation moment", "first love story", "leaving home journey", "growing up scene"]},
+        {"name": "Dreams & Aspirations", "description": "Pursuit of wishes, dreams, and fortune with hope, luck, and transformative journey from obscurity to success", "examples": ["chasing dreams montage", "rags to riches story", "achieving goals", "career breakthrough"]},
+        {"name": "Heroic & Epic Conflicts", "description": "Battles between good and evil, high-stakes challenges, and survival with rivalry, courage, and existential dangers", "examples": ["final battle scene", "hero vs villain", "epic showdown", "life or death stakes"]},
+        {"name": "Identity & Hidden Agendas", "description": "Conflicts related to identity, secrets, and mistaken perceptions including evasion, revenge, and seeking justice", "examples": ["secret identity reveal", "undercover mission", "revenge plot", "hidden truth discovered"]},
+        {"name": "Morality & Inner Conflict", "description": "Ethical dilemmas, complexity of human nature, and redemption against backdrop of moral gray areas and truth", "examples": ["moral dilemma scene", "redemption arc", "ethical choice moment", "character wrestling with conscience"]},
+        {"name": "Partnership & Comedy", "description": "Partnerships often humorous with themes of camaraderie, teamwork, and interpersonal dynamics in buddy setting", "examples": ["buddy cop dynamic", "unlikely duo", "teamwork montage", "friends working together"]},
+        {"name": "Perseverance & Personal Struggle", "description": "Overcoming obstacles and personal trials featuring narratives of resilience, comebacks, and cause-effect events", "examples": ["training montage", "comeback story", "overcoming adversity", "never give up moment"]},
+        {"name": "Romance & Emotional Turmoil", "description": "Romantic relationships, love struggles, and emotional crises from passionate connections to forbidden love and tragedy", "examples": ["love triangle", "breakup scene", "passionate romance", "relationship conflict"]},
+        {"name": "Societal & Cultural Issues", "description": "Broader societal and cultural conflicts including race, class, human rights, and environmental issues", "examples": ["social justice story", "class struggle", "environmental message", "cultural conflict"]},
+        {"name": "Transformation & Identity", "description": "Personal transformation, reinvention, and discovering true self through change and self-discovery", "examples": ["character transformation", "identity crisis", "self-discovery journey", "reinvention arc"]},
+    ],
+    "genre": [
+        # TV/Film Genre Categories
+        {"name": "Drama", "description": "Serious narrative fiction focusing on realistic characters and emotional themes with complex storylines", "examples": ["Grey's Anatomy medical drama", "Scandal political drama", "This Is Us family drama"]},
+        {"name": "Comedy", "description": "Light-hearted content designed to amuse and entertain through humor, wit, and comedic situations", "examples": ["Friends sitcom", "The Simpsons animated comedy", "It's Always Sunny dark comedy"]},
+        {"name": "Action & Adventure", "description": "High-energy content with physical feats, chases, fights, and exciting action sequences", "examples": ["Reacher action thriller", "Daredevil superhero action", "Peacemaker action comedy"]},
+        {"name": "Horror & Thriller", "description": "Content designed to frighten, create suspense, or tension with scary or thrilling elements", "examples": ["The Last of Us horror drama", "Wednesday gothic thriller", "American Horror Story"]},
+        {"name": "Sci-Fi & Fantasy", "description": "Speculative fiction with futuristic, supernatural, or magical elements and world-building", "examples": ["Outlander time travel fantasy", "American Gods mythology", "Westworld sci-fi"]},
+        {"name": "Reality & Competition", "description": "Unscripted content featuring real people in competitions, dating, or documentary-style formats", "examples": ["Hell's Kitchen cooking competition", "Love Island dating show", "The Masked Singer singing competition"]},
+        {"name": "Crime & Legal", "description": "Stories centered around crime, law enforcement, legal proceedings, and justice", "examples": ["Law & Order procedural", "Gotham crime drama", "9-1-1 first responder drama"]},
+        {"name": "Period & Historical", "description": "Stories set in historical periods with period-accurate settings, costumes, and themes", "examples": ["Versailles historical drama", "Outlander period piece", "The Crown royal drama"]},
+    ],
+    "format": [
+        # TV Production Format Categories
+        {"name": "Scripted Drama Series", "description": "Episodic fictional drama content with ongoing narrative arcs and character development", "examples": ["Grey's Anatomy", "Scandal", "The Last of Us"]},
+        {"name": "Scripted Comedy Series", "description": "Episodic comedy content including sitcoms, animated comedy, and comedic dramas", "examples": ["Friends", "The Simpsons", "It's Always Sunny in Philadelphia"]},
+        {"name": "Reality Competition", "description": "Unscripted competition shows with contestants competing for prizes or titles", "examples": ["Hell's Kitchen", "The Masked Singer", "Love Island"]},
+        {"name": "Animated Series", "description": "Animation-based content including adult animation and family animated series", "examples": ["The Simpsons", "Archer", "Family Guy"]},
+        {"name": "Limited Series & Prestige TV", "description": "High-production value limited run series or prestige television with cinematic quality", "examples": ["The Last of Us", "Wednesday", "Only Murders in the Building"]},
+    ],
+}
+
+# NBCU-optimized cluster definitions for TV content
+NBCU_CLUSTER_DEFINITIONS = {
+    "scripted_drama": {
+        "keywords": ["drama", "medical", "legal", "crime", "thriller", "mystery", "scandal", "hospital", "court", "detective"],
+        "enrichments": [EnrichmentType.SUMMARY, EnrichmentType.DESCRIPTION, EnrichmentType.GENRE,
+                       EnrichmentType.MOOD, EnrichmentType.SUBJECT, EnrichmentType.FORMAT,
+                       EnrichmentType.ENTITIES, EnrichmentType.SEGMENTS],
+        "description": "Scripted drama series - full enrichment with entities and segments"
+    },
+    "scripted_comedy": {
+        "keywords": ["comedy", "sitcom", "funny", "humor", "animated", "simpsons", "friends", "sunny"],
+        "enrichments": [EnrichmentType.SUMMARY, EnrichmentType.DESCRIPTION, EnrichmentType.GENRE,
+                       EnrichmentType.MOOD, EnrichmentType.SUBJECT, EnrichmentType.FORMAT],
+        "description": "Scripted comedy - skip segments (less structured), focus on mood"
+    },
+    "reality_competition": {
+        "keywords": ["reality", "competition", "contest", "kitchen", "island", "masked", "bachelor", "survivor", "dating"],
+        "enrichments": [EnrichmentType.SUMMARY, EnrichmentType.DESCRIPTION, EnrichmentType.GENRE,
+                       EnrichmentType.MOOD, EnrichmentType.SUBJECT, EnrichmentType.FORMAT],
+        "description": "Reality/competition shows - skip entities (no scripted celebrities)"
+    },
+    "action_adventure": {
+        "keywords": ["action", "adventure", "superhero", "hero", "battle", "fight", "chase", "reacher", "daredevil", "peacemaker"],
+        "enrichments": [EnrichmentType.SUMMARY, EnrichmentType.DESCRIPTION, EnrichmentType.GENRE,
+                       EnrichmentType.MOOD, EnrichmentType.SUBJECT, EnrichmentType.FORMAT,
+                       EnrichmentType.ENTITIES, EnrichmentType.SEGMENTS],
+        "description": "Action/adventure content - full enrichment for ad placement"
+    },
+    "period_historical": {
+        "keywords": ["period", "historical", "versailles", "outlander", "crown", "downton", "century", "war", "king", "queen"],
+        "enrichments": [EnrichmentType.SUMMARY, EnrichmentType.DESCRIPTION, EnrichmentType.GENRE,
+                       EnrichmentType.MOOD, EnrichmentType.SUBJECT, EnrichmentType.FORMAT,
+                       EnrichmentType.ENTITIES],
+        "description": "Period/historical dramas - entities important for historical figures"
+    },
+    "horror_thriller": {
+        "keywords": ["horror", "thriller", "scary", "fear", "terror", "zombie", "monster", "dark", "suspense", "last of us", "wednesday"],
+        "enrichments": [EnrichmentType.SUMMARY, EnrichmentType.DESCRIPTION, EnrichmentType.GENRE,
+                       EnrichmentType.MOOD, EnrichmentType.SUBJECT, EnrichmentType.FORMAT,
+                       EnrichmentType.SEGMENTS],
+        "description": "Horror/thriller content - segments for scene-level ad safety"
+    },
+}
+
+
+def get_nbcu_taxonomy_values(classification_type: str) -> List[str]:
+    """Get the list of value names for NBCU taxonomy classification."""
+    if classification_type in NBCU_TAXONOMY:
+        return [item["name"] for item in NBCU_TAXONOMY[classification_type]]
+    return []
 
 
 # =============================================================================
@@ -318,6 +439,11 @@ class Wave2Analysis:
         """RLM samples dataset to understand composition."""
         logger.info("WAVE 2: Corpus Analysis")
 
+        # Use NBCU-optimized clustering if enabled
+        if self.config.use_nbcu_taxonomy:
+            logger.info("  Using NBCU Emotional Congruence taxonomy clustering")
+            return self._nbcu_clustering(assets)
+
         sample_size = min(self.config.sample_size_for_analysis, len(assets))
         logger.info(f"  Sampling {sample_size} of {len(assets)} videos...")
 
@@ -336,6 +462,63 @@ class Wave2Analysis:
             logger.info("  Using heuristic clustering (set LLM API key for RLM analysis)")
             profile = self._heuristic_clustering(assets)
 
+        return profile
+
+    def _nbcu_clustering(self, assets: List[VideoAsset]) -> CorpusProfile:
+        """NBCU-optimized clustering for TV content with Emotional Congruence taxonomy."""
+        profile = CorpusProfile(
+            total_videos=len(assets),
+            content_types=["TV Episodes", "Scripted Series", "Reality TV"],
+            likely_has_brands=True,
+            likely_has_celebrities=True,
+            genre_diversity="high",
+            recommended_strategy="NBCU Emotional Congruence taxonomy with content-type-specific enrichment"
+        )
+
+        assigned = set()
+
+        # Process each NBCU cluster definition
+        for cluster_name, cluster_def in NBCU_CLUSTER_DEFINITIONS.items():
+            keywords = cluster_def["keywords"]
+            enrichments = cluster_def["enrichments"]
+            description = cluster_def["description"]
+
+            matching_ids = []
+            for asset in assets:
+                if asset.video_id in assigned:
+                    continue
+                text = f"{asset.title} {asset.caption_summary}".lower()
+                if any(kw in text for kw in keywords):
+                    matching_ids.append(asset.video_id)
+                    assigned.add(asset.video_id)
+                    asset.cluster = cluster_name
+
+            if matching_ids:
+                profile.clusters[cluster_name] = ClusterPlan(
+                    cluster_name=cluster_name,
+                    video_ids=matching_ids,
+                    enrichments_to_run=enrichments,
+                    reasoning=description
+                )
+
+        # Default cluster for unassigned videos - full NBCU enrichment
+        unassigned = [a.video_id for a in assets if a.video_id not in assigned]
+        if unassigned:
+            profile.clusters["general_tv"] = ClusterPlan(
+                cluster_name="general_tv",
+                video_ids=unassigned,
+                enrichments_to_run=[
+                    EnrichmentType.SUMMARY, EnrichmentType.DESCRIPTION,
+                    EnrichmentType.GENRE, EnrichmentType.MOOD,
+                    EnrichmentType.SUBJECT, EnrichmentType.FORMAT
+                ],
+                reasoning="General TV content - standard NBCU emotional congruence enrichment"
+            )
+            for asset in assets:
+                if asset.video_id in unassigned:
+                    asset.cluster = "general_tv"
+
+        self._log_analysis(profile)
         return profile
 
     def _get_diverse_sample(self, assets: List[VideoAsset], n: int) -> List[VideoAsset]:
@@ -526,6 +709,7 @@ class Wave3Enrichment:
     def __init__(self, api_client: VideoAPIClient, config: Config):
         self.api_client = api_client
         self.config = config
+        self.use_nbcu = config.use_nbcu_taxonomy
 
     def process_cluster(self, cluster: ClusterPlan, assets_by_id: Dict[str, VideoAsset]) -> Dict[str, Dict]:
         """Process all videos in a cluster with shared context."""
@@ -595,22 +779,30 @@ class Wave3Enrichment:
                 return {'narrative_description': desc}
 
         elif enrichment == EnrichmentType.GENRE:
-            genres = self.api_client.get_classification(asset.video_id, 'genre')
+            # Use NBCU taxonomy values if enabled
+            values = get_nbcu_taxonomy_values('genre') if self.use_nbcu else None
+            genres = self.api_client.get_classification(asset.video_id, 'genre', values)
             if genres:
                 return {'narrative_genre': ', '.join(genres)}
 
         elif enrichment == EnrichmentType.MOOD:
-            moods = self.api_client.get_classification(asset.video_id, 'mood')
+            # Use NBCU taxonomy values if enabled
+            values = get_nbcu_taxonomy_values('mood') if self.use_nbcu else None
+            moods = self.api_client.get_classification(asset.video_id, 'mood', values)
             if moods:
                 return {'narrative_mood': ', '.join(moods)}
 
         elif enrichment == EnrichmentType.SUBJECT:
-            subjects = self.api_client.get_classification(asset.video_id, 'subject')
+            # Use NBCU taxonomy values if enabled
+            values = get_nbcu_taxonomy_values('subject') if self.use_nbcu else None
+            subjects = self.api_client.get_classification(asset.video_id, 'subject', values)
             if subjects:
                 return {'narrative_subject': ', '.join(subjects)}
 
         elif enrichment == EnrichmentType.FORMAT:
-            formats = self.api_client.get_classification(asset.video_id, 'format')
+            # Use NBCU taxonomy values if enabled
+            values = get_nbcu_taxonomy_values('format') if self.use_nbcu else None
+            formats = self.api_client.get_classification(asset.video_id, 'format', values)
             if formats:
                 return {'narrative_format': ', '.join(formats)}
 
@@ -820,6 +1012,8 @@ Examples:
     parser.add_argument('--force-enrichments', help='Comma-separated enrichments: summary,genre,entities')
     parser.add_argument('--no-save', action='store_true', help='Dry run - do not save results')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
+    parser.add_argument('--nbcu-taxonomy', action='store_true',
+                        help='Use NBCU Emotional Congruence taxonomy for classification (10 moods, 10 themes, 8 genres, 5 formats)')
 
     args = parser.parse_args()
 
@@ -832,11 +1026,17 @@ Examples:
     else:
         config = Config.from_env()
 
+    # Override NBCU taxonomy setting from CLI flag
+    if args.nbcu_taxonomy:
+        config.use_nbcu_taxonomy = True
+
     logger.info("=" * 60)
     logger.info("RLM VIDEO NARRATIVE ENRICHMENT")
     logger.info("=" * 60)
     logger.info(f"Dataset: {args.dataset_id}")
     logger.info(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    if config.use_nbcu_taxonomy:
+        logger.info(f"Taxonomy: NBCU Emotional Congruence (10 moods, 10 themes)")
 
     # Parse force enrichments
     force_enrichments = None

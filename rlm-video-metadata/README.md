@@ -205,7 +205,7 @@ print(f"Processed {result['success_count']} videos in {result['elapsed_seconds']
 usage: rlm_video_enrichment.py [-h] --dataset-id DATASET_ID [--config CONFIG]
                                 [--limit LIMIT] [--analyze-only] [--skip-wave1]
                                 [--skip-wave2] [--force-enrichments FORCE_ENRICHMENTS]
-                                [--no-save] [--verbose]
+                                [--no-save] [--verbose] [--nbcu-taxonomy]
 
 Options:
   --dataset-id, -d    Dataset ID to process (required)
@@ -217,7 +217,76 @@ Options:
   --force-enrichments Comma-separated: summary,genre,entities
   --no-save           Dry run - do not save results
   --verbose, -v       Verbose logging
+  --nbcu-taxonomy     Use NBCU Emotional Congruence taxonomy (see below)
 ```
+
+---
+
+## NBCU Emotional Congruence Taxonomy
+
+Use `--nbcu-taxonomy` flag to enable optimized classification for TV/Film content, designed for ad placement and emotional congruence use cases.
+
+```bash
+# Run with NBCU taxonomy
+python rlm_video_enrichment.py --dataset-id abc123 --nbcu-taxonomy
+
+# Or set in config.json
+{
+    "use_nbcu_taxonomy": true
+}
+
+# Or via environment variable
+export USE_NBCU_TAXONOMY=true
+```
+
+### NBCU Taxonomy Categories
+
+**10 Mood Categories:**
+| Category | Description |
+|----------|-------------|
+| Dark & Enigmatic | Noir, supernatural, gothic, mysterious |
+| Dark Comedy & Gritty Humor | Irreverent, edgy, boundary-pushing comedy |
+| Heroic & Patriotic | Epic, brave, larger-than-life narratives |
+| Mystical & Whimsical | Magical realism, dreamlike, surreal |
+| Nostalgic & Dramatic | Emotional, melancholic, sentimental |
+| Quirky & Comedic | Lighthearted, goofy, satirical |
+| Suspenseful & Adventurous | High-energy action, mystery, danger |
+| Thought-Provoking & Intellectual | Psychological, philosophical |
+| Thrilling & Sinister | Intense suspense, fear, creepy |
+| Uplifting & Romantic | Warm, hopeful, joyful |
+
+**10 Theme Categories:**
+| Category | Description |
+|----------|-------------|
+| Coming-of-Age & Life Journeys | Personal growth, self-discovery |
+| Dreams & Aspirations | Pursuit of fortune, rags-to-riches |
+| Heroic & Epic Conflicts | Good vs evil, survival, high stakes |
+| Identity & Hidden Agendas | Secrets, revenge, mistaken identity |
+| Morality & Inner Conflict | Ethical dilemmas, redemption |
+| Partnership & Comedy | Buddy dynamics, teamwork |
+| Perseverance & Personal Struggle | Resilience, comebacks |
+| Romance & Emotional Turmoil | Love struggles, relationships |
+| Societal & Cultural Issues | Race, class, environment |
+| Transformation & Identity | Reinvention, self-discovery |
+
+**8 Genre Categories:** Drama, Comedy, Action & Adventure, Horror & Thriller, Sci-Fi & Fantasy, Reality & Competition, Crime & Legal, Period & Historical
+
+**5 Format Categories:** Scripted Drama Series, Scripted Comedy Series, Reality Competition, Animated Series, Limited Series & Prestige TV
+
+### NBCU-Optimized Clustering
+
+When `--nbcu-taxonomy` is enabled, the pipeline automatically clusters content by type:
+
+| Cluster | Content Types | Enrichments | Rationale |
+|---------|---------------|-------------|-----------|
+| `scripted_drama` | Medical, legal, crime dramas | Full + entities + segments | Celebrity detection, scene-level targeting |
+| `scripted_comedy` | Sitcoms, animated comedy | Full (no segments) | Mood focus, less structured narrative |
+| `reality_competition` | Competition shows, dating | Full (no entities) | No scripted celebrities |
+| `action_adventure` | Superhero, action thrillers | Full + entities + segments | Full ad placement support |
+| `period_historical` | Historical dramas | Full + entities | Historical figure detection |
+| `horror_thriller` | Horror, suspense | Full + segments | Scene-level ad safety |
+
+---
 
 ## Requirements
 
