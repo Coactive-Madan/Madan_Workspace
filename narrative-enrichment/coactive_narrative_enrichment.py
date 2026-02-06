@@ -63,7 +63,9 @@ import json
 import subprocess
 import time
 import argparse
+import threading
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 # API Configuration
@@ -71,51 +73,69 @@ API_BASE_URL = "https://api.coactive.ai"
 APP_BASE_URL = "https://app.coactive.ai"
 
 
+def load_custom_categories(filepath):
+    """
+    Load custom categories from a JSON file (e.g., from category_discovery.py).
+
+    Usage:
+        python3 coactive_narrative_enrichment.py -d ... -t ... --categories discovered_categories.json
+    """
+    try:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Warning: Could not load custom categories from {filepath}: {e}")
+        return None
+
+
 # Default metadata values for classification
 # These define what categories the API can classify videos into
-# Includes both entertainment and news content categories
+# NBCU Emotional Congruence Taxonomy for TV Episodes
 DEFAULT_METADATA_VALUES = {
-    "genre": [
-        # Entertainment
-        {"name": "Awards Show", "description": "Content featuring award ceremonies, acceptance speeches, and recognition events", "examples": ["Grammy Awards ceremony", "Artist receiving award on stage", "Acceptance speech"]},
-        {"name": "Documentary", "description": "Non-fiction content documenting real events and people", "examples": ["Behind the scenes footage", "Event documentation"]},
-        {"name": "Reality TV", "description": "Unscripted reality television content", "examples": ["Red carpet coverage", "Live event footage"]},
-        {"name": "Talk Show", "description": "Interview and conversation format programming", "examples": ["Celebrity interview", "Artist Q&A"]},
-        {"name": "Music Video", "description": "Music video or performance content", "examples": ["Artist performance", "Music clip"]},
-        # News
-        {"name": "News Program", "description": "Television news program genre", "examples": ["CBS Evening News", "NBC Nightly News", "Breaking news coverage"]},
-        {"name": "Current Affairs", "description": "Current affairs programming covering news and public interest topics", "examples": ["60 Minutes", "Dateline", "News magazine"]},
-    ],
     "mood": [
-        # Entertainment
-        {"name": "Celebratory", "description": "Joyful and celebratory atmosphere", "examples": ["Award wins", "Celebration moments"]},
-        {"name": "Emotional", "description": "Touching and emotional moments", "examples": ["Heartfelt speeches", "Tearful acceptance"]},
-        {"name": "Exciting", "description": "High energy and exciting content", "examples": ["Performance highlights", "Big reveals"]},
-        {"name": "Inspiring", "description": "Uplifting and motivational content", "examples": ["Inspirational speeches", "Success stories"]},
-        {"name": "Nostalgic", "description": "Content evoking memories and nostalgia", "examples": ["Retrospective moments", "Historical clips"]},
-        # News
-        {"name": "Serious", "description": "Serious and professional tone for important topics", "examples": ["Hard news", "Breaking news coverage"]},
+        # 10 Mood Categories from NBCU Emotional Congruence Taxonomy
+        {"name": "Dark & Enigmatic", "description": "Mysterious, shadowy, and intense tones blending noir, supernatural, and gothic with moody avant-garde style", "examples": ["noir thriller scene", "gothic horror atmosphere", "supernatural mystery", "dark brooding mood"]},
+        {"name": "Dark Comedy & Gritty Humor", "description": "Gritty dark humor with irreverent, slapstick, and controversial tones pushing boundaries with edgy comedy", "examples": ["dark comedic scene", "irreverent satire", "gallows humor moment", "edgy controversial joke"]},
+        {"name": "Heroic & Patriotic", "description": "Grand, larger-than-life narratives with bravery, energy, and nationalism celebrating epic stories and heroic deeds", "examples": ["heroic sacrifice", "patriotic speech", "epic battle victory", "brave rescue scene"]},
+        {"name": "Mystical & Whimsical", "description": "Surreal and otherworldly tones using magical realism, psychedelic, and lyrical elements for dreamlike atmosphere", "examples": ["magical realism scene", "whimsical fantasy", "dreamlike sequence", "surreal visuals"]},
+        {"name": "Nostalgic & Dramatic", "description": "Evokes strong emotions reflecting on the past, loss, and sentimentality in heavy, melancholic, or tragic context", "examples": ["nostalgic flashback", "dramatic farewell", "bittersweet memory", "emotional loss scene"]},
+        {"name": "Quirky & Comedic", "description": "Humor and lightheartedness with quirky, goofy, and satirical tones highlighting fun and unconventional comedy", "examples": ["quirky character moment", "slapstick comedy", "absurdist humor", "sitcom funny scene"]},
+        {"name": "Suspenseful & Adventurous", "description": "High-energy suspenseful narratives with adventurous and exotic tone blending action with mystery and danger", "examples": ["chase sequence", "adventure expedition", "suspenseful reveal", "action pursuit"]},
+        {"name": "Thought-Provoking & Intellectual", "description": "Challenges the mind and provokes thought using psychological or philosophical lens blending informative with abstract", "examples": ["philosophical debate", "psychological thriller", "intellectual discourse", "moral dilemma discussion"]},
+        {"name": "Thrilling & Sinister", "description": "Exciting and intense with elements of suspense, fear, and danger creating sinister or creepy mood", "examples": ["horror reveal", "sinister villain scene", "tense thriller moment", "creepy atmosphere"]},
+        {"name": "Uplifting & Romantic", "description": "Warm, hopeful, and emotionally positive tones celebrating love, joy, and human connection", "examples": ["romantic confession", "heartwarming reunion", "triumphant celebration", "joyful moment"]},
     ],
     "subject": [
-        # Entertainment
-        {"name": "Music", "description": "Content about music and musicians", "examples": ["Songs", "Albums", "Musical performances"]},
-        {"name": "Celebrity", "description": "Celebrity-focused content", "examples": ["Famous artists", "Star appearances"]},
-        {"name": "Awards", "description": "Award-related content", "examples": ["Grammy Awards", "Music awards"]},
-        {"name": "Fashion", "description": "Fashion and style content", "examples": ["Red carpet fashion", "Designer outfits"]},
-        {"name": "Entertainment Industry", "description": "Entertainment business content", "examples": ["Industry news", "Record labels"]},
-        # News
-        {"name": "Current Events", "description": "Coverage of current news and events", "examples": ["Daily news", "Breaking stories", "World events"]},
-        {"name": "Politics", "description": "Political news and government coverage", "examples": ["Government policy", "Elections", "Congress"]},
+        # 10 Theme Categories from NBCU Emotional Congruence Taxonomy
+        {"name": "Coming-of-Age & Life Journeys", "description": "Personal growth, self-discovery, and overcoming life's challenges involving maturity and significant change", "examples": ["graduation moment", "first love story", "leaving home journey", "growing up scene"]},
+        {"name": "Dreams & Aspirations", "description": "Pursuit of wishes, dreams, and fortune with hope, luck, and transformative journey from obscurity to success", "examples": ["chasing dreams montage", "rags to riches story", "achieving goals", "career breakthrough"]},
+        {"name": "Heroic & Epic Conflicts", "description": "Battles between good and evil, high-stakes challenges, and survival with rivalry, courage, and existential dangers", "examples": ["final battle scene", "hero vs villain", "epic showdown", "life or death stakes"]},
+        {"name": "Identity & Hidden Agendas", "description": "Conflicts related to identity, secrets, and mistaken perceptions including evasion, revenge, and seeking justice", "examples": ["secret identity reveal", "undercover mission", "revenge plot", "hidden truth discovered"]},
+        {"name": "Morality & Inner Conflict", "description": "Ethical dilemmas, complexity of human nature, and redemption against backdrop of moral gray areas and truth", "examples": ["moral dilemma scene", "redemption arc", "ethical choice moment", "character wrestling with conscience"]},
+        {"name": "Partnership & Comedy", "description": "Partnerships often humorous with themes of camaraderie, teamwork, and interpersonal dynamics in buddy setting", "examples": ["buddy cop dynamic", "unlikely duo", "teamwork montage", "friends working together"]},
+        {"name": "Perseverance & Personal Struggle", "description": "Overcoming obstacles and personal trials featuring narratives of resilience, comebacks, and cause-effect events", "examples": ["training montage", "comeback story", "overcoming adversity", "never give up moment"]},
+        {"name": "Romance & Emotional Turmoil", "description": "Romantic relationships, love struggles, and emotional crises from passionate connections to forbidden love and tragedy", "examples": ["love triangle", "breakup scene", "passionate romance", "relationship conflict"]},
+        {"name": "Societal & Cultural Issues", "description": "Broader societal and cultural conflicts including race, class, human rights, and environmental issues", "examples": ["social justice story", "class struggle", "environmental message", "cultural conflict"]},
+        {"name": "Transformation & Identity", "description": "Personal transformation, reinvention, and discovering true self through change and self-discovery", "examples": ["character transformation", "identity crisis", "self-discovery journey", "reinvention arc"]},
+    ],
+    "genre": [
+        # TV/Film Genre Categories
+        {"name": "Drama", "description": "Serious narrative fiction focusing on realistic characters and emotional themes with complex storylines", "examples": ["Grey's Anatomy medical drama", "Scandal political drama", "This Is Us family drama"]},
+        {"name": "Comedy", "description": "Light-hearted content designed to amuse and entertain through humor, wit, and comedic situations", "examples": ["Friends sitcom", "The Simpsons animated comedy", "It's Always Sunny dark comedy"]},
+        {"name": "Action & Adventure", "description": "High-energy content with physical feats, chases, fights, and exciting action sequences", "examples": ["Reacher action thriller", "Daredevil superhero action", "Peacemaker action comedy"]},
+        {"name": "Horror & Thriller", "description": "Content designed to frighten, create suspense, or tension with scary or thrilling elements", "examples": ["The Last of Us horror drama", "Wednesday gothic thriller", "American Horror Story"]},
+        {"name": "Sci-Fi & Fantasy", "description": "Speculative fiction with futuristic, supernatural, or magical elements and world-building", "examples": ["Outlander time travel fantasy", "American Gods mythology", "Westworld sci-fi"]},
+        {"name": "Reality & Competition", "description": "Unscripted content featuring real people in competitions, dating, or documentary-style formats", "examples": ["Hell's Kitchen cooking competition", "Love Island dating show", "The Masked Singer singing competition"]},
+        {"name": "Crime & Legal", "description": "Stories centered around crime, law enforcement, legal proceedings, and justice", "examples": ["Law & Order procedural", "Gotham crime drama", "9-1-1 first responder drama"]},
+        {"name": "Period & Historical", "description": "Stories set in historical periods with period-accurate settings, costumes, and themes", "examples": ["Versailles historical drama", "Outlander period piece", "The Crown royal drama"]},
     ],
     "format": [
-        # Entertainment
-        {"name": "Speech", "description": "Acceptance speeches and presentations", "examples": ["Award acceptance", "Thank you speech"]},
-        {"name": "Performance", "description": "Live musical performances", "examples": ["Stage performance", "Live singing"]},
-        {"name": "Interview", "description": "Interview format content", "examples": ["Red carpet interview", "Backstage Q&A"]},
-        {"name": "Highlight Reel", "description": "Compilation and highlight content", "examples": ["Best moments", "Montage"]},
-        {"name": "Behind The Scenes", "description": "Behind the scenes footage", "examples": ["Backstage footage", "Preparation clips"]},
-        # News
-        {"name": "News Broadcast", "description": "Television news broadcast format with anchors and field reports", "examples": ["Evening news show", "News desk", "Field report"]},
+        # TV Production Format Categories
+        {"name": "Scripted Drama Series", "description": "Episodic fictional drama content with ongoing narrative arcs and character development", "examples": ["Grey's Anatomy", "Scandal", "The Last of Us"]},
+        {"name": "Scripted Comedy Series", "description": "Episodic comedy content including sitcoms, animated comedy, and comedic dramas", "examples": ["Friends", "The Simpsons", "It's Always Sunny in Philadelphia"]},
+        {"name": "Reality Competition", "description": "Unscripted competition shows with contestants competing for prizes or titles", "examples": ["Hell's Kitchen", "The Masked Singer", "Love Island"]},
+        {"name": "Animated Series", "description": "Animation-based content including adult animation and family animated series", "examples": ["The Simpsons", "Archer", "Family Guy"]},
+        {"name": "Limited Series & Prestige TV", "description": "High-production value limited run series or prestige television with cinematic quality", "examples": ["The Last of Us", "Wednesday", "Only Murders in the Building"]},
     ],
 }
 
@@ -142,50 +162,59 @@ def get_token(refresh_token):
 def api_post(token, endpoint, body=None):
     """Make POST request to Coactive API."""
     cmd = [
-        'curl', '-s', '-X', 'POST',
+        'curl', '-s', '--max-time', '120', '-X', 'POST',
         f'{API_BASE_URL}{endpoint}',
         '-H', f'Authorization: Bearer {token}',
         '-H', 'Content-Type: application/json',
         '-d', json.dumps(body or {})
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode == 0 and result.stdout:
-        try:
-            return json.loads(result.stdout)
-        except:
-            return {"raw": result.stdout}
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=130)
+        if result.returncode == 0 and result.stdout:
+            try:
+                return json.loads(result.stdout)
+            except:
+                return {"raw": result.stdout}
+    except subprocess.TimeoutExpired:
+        return None
     return None
 
 
 def api_get(token, endpoint):
     """Make GET request to Coactive API."""
     cmd = [
-        'curl', '-s', '-X', 'GET',
+        'curl', '-s', '--max-time', '60', '-X', 'GET',
         f'{API_BASE_URL}{endpoint}',
         '-H', f'Authorization: Bearer {token}'
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode == 0 and result.stdout:
-        try:
-            return json.loads(result.stdout)
-        except:
-            return None
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=70)
+        if result.returncode == 0 and result.stdout:
+            try:
+                return json.loads(result.stdout)
+            except:
+                return None
+    except subprocess.TimeoutExpired:
+        return None
     return None
 
 
 def app_api_get(token, endpoint):
     """Make GET request to Coactive App API."""
     cmd = [
-        'curl', '-s', '-X', 'GET',
+        'curl', '-s', '--max-time', '60', '-X', 'GET',
         f'{APP_BASE_URL}{endpoint}',
         '-H', f'Authorization: Bearer {token}'
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode == 0 and result.stdout:
-        try:
-            return json.loads(result.stdout)
-        except:
-            return None
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=70)
+        if result.returncode == 0 and result.stdout:
+            try:
+                return json.loads(result.stdout)
+            except:
+                return None
+    except subprocess.TimeoutExpired:
+        return None
     return None
 
 
@@ -670,7 +699,9 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
                         help='Max number of videos to process (default: 100)')
     parser.add_argument('--delay', type=float, default=0.5,
                         help='Delay between videos in seconds (default: 0.5)')
-    
+    parser.add_argument('--workers', '-w', type=int, default=1,
+                        help='Number of parallel workers for video processing (default: 1)')
+
     args = parser.parse_args()
     
     print("=" * 80)
@@ -726,27 +757,30 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
         print("❌ No videos found")
         return
     
-    # Process each video
+    # Thread-safe print and results
+    print_lock = threading.Lock()
     results = []
-    
-    for idx, video in enumerate(videos, 1):
+    results_lock = threading.Lock()
+    completed_count = [0]  # mutable counter for threads
+
+    def process_single_video(idx, video, total):
+        """Process a single video - thread-safe."""
         video_id = video.get('coactiveVideoId')
         path = video.get('path', '')
         filename = path.split('/')[-1] if path else video_id
-        
-        # Get title from existing metadata
+
         existing_meta = video.get('metadata', {})
-        title = (existing_meta.get('original_title') or 
-                 existing_meta.get('imdb_title') or 
-                 existing_meta.get('extracted_title') or 
+        title = (existing_meta.get('original_title') or
+                 existing_meta.get('imdb_title') or
+                 existing_meta.get('extracted_title') or
                  filename)[:50]
-        
-        print(f"\n[{idx}/{len(videos)}] 🎬 {title}")
-        print(f"    ID: {video_id}")
-        
+
+        # Collect output lines then print atomically
+        lines = [f"\n[{idx}/{total}] 🎬 {title}", f"    ID: {video_id}"]
+
         metadata = {}
         fields = []
-        
+
         # Get segment/chapter detection if requested
         if args.segments or args.segments_only:
             segments = get_video_segments(token, args.dataset_id, video_id)
@@ -757,7 +791,7 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
                     metadata['video_chapters'] = chapters_text
                     metadata['video_segment_count'] = str(len(segments))
                     fields.append('segments')
-        
+
         # Get entity/people extraction if requested
         if args.entities or args.entities_only:
             entities = get_video_entities(token, args.dataset_id, video_id)
@@ -768,28 +802,62 @@ Note: Genre, Mood, Subject, and Format require metadata values to be set up firs
                     metadata['video_people'] = people_list
                     metadata['video_entity_count'] = str(len(entities))
                     fields.append('entities')
-        
+
         # Get other narrative metadata (unless segments-only or entities-only mode)
         if not args.segments_only and not args.entities_only:
             narrative_metadata, narrative_fields = get_narrative_metadata(token, args.dataset_id, video_id, args.intent)
             metadata.update(narrative_metadata)
             fields.extend(narrative_fields)
-        
+
+        result_entry = None
         if len(fields) > 0:
-            print(f"    💾 Saving {len(fields)} fields...")
+            lines.append(f"    💾 Saving {len(fields)} fields: {', '.join(fields)}")
             if update_video_metadata(token, args.dataset_id, video_id, metadata):
-                print("       ✅ Saved!")
-                results.append({'video': title, 'status': 'success', 'fields': fields})
+                lines.append("       ✅ Saved!")
+                result_entry = {'video': title, 'status': 'success', 'fields': fields}
             else:
-                print("       ❌ Save failed")
-                results.append({'video': title, 'status': 'save_failed', 'fields': fields})
+                lines.append("       ❌ Save failed")
+                result_entry = {'video': title, 'status': 'save_failed', 'fields': fields}
         else:
-            print("    ❌ No metadata retrieved")
-            results.append({'video': title, 'status': 'no_metadata', 'fields': []})
-        
-        # Rate limiting
-        if idx < len(videos):
-            time.sleep(args.delay)
+            lines.append("    ❌ No metadata retrieved")
+            result_entry = {'video': title, 'status': 'no_metadata', 'fields': []}
+
+        # Thread-safe output
+        with print_lock:
+            completed_count[0] += 1
+            lines[0] = f"\n[{idx}/{total}] ({completed_count[0]} done) 🎬 {title}"
+            print('\n'.join(lines), flush=True)
+
+        with results_lock:
+            results.append(result_entry)
+
+        return result_entry
+
+    # Process videos
+    total = len(videos)
+    num_workers = args.workers
+
+    if num_workers > 1:
+        print(f"\n🚀 Processing {total} videos with {num_workers} parallel workers...")
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            futures = {}
+            for idx, video in enumerate(videos, 1):
+                future = executor.submit(process_single_video, idx, video, total)
+                futures[future] = idx
+
+            # Wait for all to complete
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    with print_lock:
+                        print(f"    ❌ Error processing video {futures[future]}: {e}")
+    else:
+        print(f"\n Processing {total} videos sequentially...")
+        for idx, video in enumerate(videos, 1):
+            process_single_video(idx, video, total)
+            if idx < total:
+                time.sleep(args.delay)
     
     # Summary
     print("\n" + "=" * 80)
