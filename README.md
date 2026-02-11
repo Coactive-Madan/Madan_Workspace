@@ -11,6 +11,7 @@ Collection of Coactive AI utility scripts and tools.
 | [imdb-enrichment](./imdb-enrichment) | Enrich assets with IMDB metadata |
 | [hybe-celebrity-enrollment](./hybe-celebrity-enrollment) | Enroll celebrities for face detection |
 | [audio-processing](./audio-processing) | Audio downmix and track processing tools |
+| [s3-ingestion](./s3-ingestion) | Google Drive → S3 copy + Coactive dataset ingestion |
 
 ## Quick Start
 
