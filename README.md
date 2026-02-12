@@ -12,6 +12,7 @@ Collection of Coactive AI utility scripts and tools.
 | [hybe-celebrity-enrollment](./hybe-celebrity-enrollment) | Enroll celebrities for face detection |
 | [audio-processing](./audio-processing) | Audio downmix and track processing tools |
 | [s3-ingestion](./s3-ingestion) | Google Drive → S3 copy + Coactive dataset ingestion |
+| [dynamic-tags](./dynamic-tags) | Generate & push optimized prompts for Dynamic Tags (v3 API) |
 
 ## Quick Start
 
@@ -47,6 +48,22 @@ python3 hybe_celebrity_enrollment.py
 ```bash
 cd audio-processing
 python3 process_audio_downmix.py
+```
+
+### Dynamic Tags (Generate & Push)
+```bash
+cd dynamic-tags
+export COACTIVE_API_TOKEN="your_token"
+export OPENAI_API_KEY="your_openai_key"
+
+# End-to-end: fetch tags → generate prompts → push → publish
+python3 dynamic_tags.py run \
+    --group-url "https://app.coactive.ai/dynamic-tags/groups/<gid>/versions/<vid>" \
+    --publish
+
+# Or two-step: generate offline, then push
+python3 dynamic_tags.py generate --input tags.json --output prompts.json
+python3 dynamic_tags.py push --group-url "..." --prompts prompts.json --publish
 ```
 
 ## Author
