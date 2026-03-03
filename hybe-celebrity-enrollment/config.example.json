@@ -1,0 +1,26 @@
+{
+  "client_name": "Example Client",
+  "coactive_api_key": "YOUR_API_KEY_HERE",
+  "base_url": "https://api.coactive.ai",
+  "dataset_id": "YOUR_DATASET_ID_HERE",
+  "seed_images_dir": "./seed_images",
+
+  "celebrities": [
+    {
+      "name": "Person Name",
+      "aliases": ["Alternate Name", "Nickname"],
+      "image_pattern": "PersonName*.png",
+      "max_images": 18
+    }
+  ],
+
+  "dt_groups": [
+    {
+      "name": "Content Classification",
+      "tags": {
+        "Tag Name 1": "Description of what this tag detects in visual content",
+        "Tag Name 2": "Description of what this other tag detects"
+      }
+    }
+  ]
+}

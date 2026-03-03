@@ -1,116 +1,97 @@
 #!/usr/bin/env python3
 """
-HYBE Celebrity Detection - Artist Enrollment Script
-====================================================
-This script enrolls HYBE artists (starting with Sunghoon from ENHYPEN) 
-into the Coactive Celebrity Detection system.
+Celebrity Detection - Person Enrollment Script
+===============================================
+Enrolls a person into the Coactive Celebrity Detection system using the
+3-step API flow from the Postman collection:
+  1. Create draft person  (POST /api/v0/celebrity-detection/enroll)
+  2. Upload seed images    (POST /api/v0/celebrity-detection/upload)
+  3. Update draft with upload_ids (PATCH /api/v0/celebrity-detection/enroll/{person_id})
+  4. Finalize enrollment   (POST /api/v0/celebrity-detection/enroll/{person_id}/finalize)
 
 Usage:
-    python hybe_celebrity_enrollment.py
+    COACTIVE_API_KEY="..." COACTIVE_DATASET_ID="..." SEED_IMAGES_DIR="..." python3 hybe_celebrity_enrollment.py
 """
 
 import os
 import base64
 import json
 import glob
+import sys
 import requests
-from pathlib import Path
+import urllib3
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # =============================================================================
-# CONFIGURATION - Set these via environment variables
+# CONFIGURATION
 # =============================================================================
 
-# Coactive API Configuration
 COACTIVE_API_KEY = os.environ.get("COACTIVE_API_KEY", "")
 COACTIVE_BASE_URL = "https://api.coactive.ai"
-COACTIVE_AUTH_URL = f"{COACTIVE_BASE_URL}/v1/auth/token"
+COACTIVE_AUTH_URL = f"{COACTIVE_BASE_URL}/api/v0/login"
+CELEBRITY_BASE = f"{COACTIVE_BASE_URL}/api/v0/celebrity-detection"
 
-# Dataset Information
 DATASET_ID = os.environ.get("COACTIVE_DATASET_ID", "")
-
-# Directory containing seed images
 SEED_IMAGES_DIR = os.environ.get("SEED_IMAGES_DIR", "./seed_images")
 
-# Artists to enroll (add more as needed)
 ARTISTS = [
     {
-        "name": "Park Sunghoon",
-        "group": "ENHYPEN", 
-        "image_pattern": "Sunghoon_*.jpg",
-        "max_images": 5  # Use top 5 images for enrollment
+        "name": "Stephen Curry",
+        "aliases": ["Steph Curry", "Wardell Stephen Curry II"],
+        "image_pattern": "Curry*.png",
+        "max_images": 18,
     },
-    # Future artists can be added here:
-    # {
-    #     "name": "Jay",
-    #     "group": "ENHYPEN",
-    #     "image_pattern": "Jay*.jpeg",
-    #     "max_images": 5
-    # },
 ]
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# AUTH
 # =============================================================================
 
 def get_jwt_token(api_key: str) -> str:
-    """Exchange API key for JWT token."""
-    print("🔑 Exchanging API key for JWT token...")
-    
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-Key": api_key
-    }
-    
-    try:
-        response = requests.post(
-            COACTIVE_AUTH_URL,
-            headers=headers,
-            json={}
-        )
-        response.raise_for_status()
-        
-        token_data = response.json()
-        jwt_token = token_data.get("access_token") or token_data.get("token")
-        
-        if jwt_token:
-            print("✅ JWT token obtained successfully!")
-            return jwt_token
-        else:
-            # If the API key is used directly as Bearer token
-            print("ℹ️  Using API key directly as authorization...")
-            return api_key
-            
-    except requests.exceptions.HTTPError as e:
-        print(f"⚠️  Token exchange returned {e.response.status_code}")
-        print("ℹ️  Attempting to use API key directly...")
-        return api_key
-    except Exception as e:
-        print(f"⚠️  Token exchange error: {e}")
-        print("ℹ️  Attempting to use API key directly...")
-        return api_key
+    """Exchange personal API token for JWT via /api/v0/login."""
+    print("🔑 Exchanging personal token for JWT...")
 
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {"grant_type": "refresh_token"}
+
+    response = requests.post(COACTIVE_AUTH_URL, headers=headers, json=payload, verify=False, timeout=60)
+
+    if response.status_code == 200:
+        token_data = response.json()
+        jwt_token = token_data.get("access_token") or token_data.get("token") or token_data.get("jwt")
+        if jwt_token:
+            print(f"✅ JWT token obtained: {jwt_token[:40]}...")
+            return jwt_token
+
+    raise ValueError(f"Failed to get JWT (HTTP {response.status_code}): {response.text[:300]}")
+
+
+# =============================================================================
+# IMAGE HELPERS
+# =============================================================================
 
 def encode_image_to_base64(image_path: str) -> str:
     """Read an image file and encode it to base64."""
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode("utf-8")
+    with open(image_path, "rb") as f:
+        return base64.b64encode(f.read()).decode("utf-8")
 
 
-def get_artist_images(image_pattern: str, max_images: int = 5) -> list:
-    """
-    Find and load artist seed images.
-    Returns list of (filename, base64_data) tuples.
-    """
+def get_artist_images(image_pattern: str, max_images: int = 18) -> list:
+    """Find and load artist seed images."""
     pattern = os.path.join(SEED_IMAGES_DIR, image_pattern)
     image_files = sorted(glob.glob(pattern))
-    
+
     if not image_files:
         print(f"⚠️  No images found matching pattern: {pattern}")
         return []
-    
+
     print(f"📷 Found {len(image_files)} images, using top {min(len(image_files), max_images)}")
-    
+
     images = []
     for img_path in image_files[:max_images]:
         filename = os.path.basename(img_path)
@@ -121,211 +102,326 @@ def get_artist_images(image_pattern: str, max_images: int = 5) -> list:
             images.append({
                 "filename": filename,
                 "base64": base64_data,
-                "path": img_path
+                "path": img_path,
             })
         except Exception as e:
             print(f"   ✗ {filename} - Error: {e}")
-    
+
     return images
 
 
-def enroll_celebrity(token: str, artist_name: str, images: list, dataset_id: str) -> dict:
-    """
-    Enroll a celebrity in the Coactive Celebrity Detection system.
-    This will trigger a backfill job to scan existing content.
-    """
-    print(f"\n🎭 Enrolling {artist_name}...")
-    
+# =============================================================================
+# ENROLLMENT API (3-step flow from Postman collection)
+# =============================================================================
+
+def api_call(method, url, headers, **kwargs):
+    """Make API call and return response, with verbose logging."""
+    print(f"   → {method} {url}")
+    resp = requests.request(method, url, headers=headers, verify=False, timeout=120, **kwargs)
+    print(f"   ← HTTP {resp.status_code} ({len(resp.content)} bytes)")
+    return resp
+
+
+def step1_create_draft_person(token: str, person_name: str) -> str:
+    """Step 1: Create a draft person entry. Returns person_id."""
+    print(f"\n📝 Step 1: Creating draft person '{person_name}'...")
+
     headers = {
         "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
-    
-    # Prepare the enrollment payload
-    # Note: Adjust endpoint and payload structure based on actual Coactive API docs
-    enrollment_endpoints = [
-        f"{COACTIVE_BASE_URL}/v1/datasets/{dataset_id}/celebrities",
-        f"{COACTIVE_BASE_URL}/v1/celebrities/enroll",
-        f"{COACTIVE_BASE_URL}/celebrity-detection/enroll",
+    payload = {"person_name": person_name}
+
+    resp = api_call("POST", f"{CELEBRITY_BASE}/enroll", headers, json=payload)
+
+    if resp.status_code in (200, 201, 202):
+        data = resp.json()
+        person_id = data.get("person_id") or data.get("id") or data.get("draft_id")
+        print(f"   ✅ Draft person created: {person_id}")
+        print(f"   Response: {json.dumps(data, indent=2)[:500]}")
+        return person_id
+    else:
+        print(f"   ❌ Failed: {resp.text[:500]}")
+        return None
+
+
+def step2_upload_images(token: str, images: list) -> list:
+    """
+    Step 2: Upload seed face images and get upload_ids.
+    Try multiple upload approaches since the exact endpoint isn't in the collection.
+    """
+    print(f"\n📤 Step 2: Uploading {len(images)} seed images...")
+
+    headers_json = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    headers_no_ct = {
+        "Authorization": f"Bearer {token}",
+    }
+
+    upload_ids = []
+
+    # Approach A: Try uploading all images as base64 in one call
+    upload_endpoints = [
+        f"{CELEBRITY_BASE}/upload",
+        f"{CELEBRITY_BASE}/uploads",
+        f"{COACTIVE_BASE_URL}/api/v0/uploads",
+        f"{COACTIVE_BASE_URL}/api/v0/upload",
+        f"{COACTIVE_BASE_URL}/api/v1/uploads",
     ]
-    
+
+    # Try batch base64 upload
+    for endpoint in upload_endpoints:
+        print(f"\n   Trying batch upload: {endpoint}")
+        payload = {
+            "images": [
+                {"filename": img["filename"], "data": img["base64"]}
+                for img in images
+            ]
+        }
+        resp = api_call("POST", endpoint, headers_json, json=payload)
+        if resp.status_code in (200, 201, 202):
+            data = resp.json()
+            print(f"   ✅ Batch upload succeeded: {json.dumps(data, indent=2)[:300]}")
+            ids = data.get("upload_ids") or data.get("ids") or data.get("file_ids") or []
+            if ids:
+                return ids
+            # Maybe it's a list of objects
+            if isinstance(data, list):
+                return [item.get("id") or item.get("upload_id") for item in data if item.get("id") or item.get("upload_id")]
+            break
+        elif resp.status_code == 404:
+            print(f"   → 404, trying next...")
+            continue
+        else:
+            print(f"   → {resp.status_code}: {resp.text[:200]}")
+
+    # Approach B: Try individual file uploads (multipart form)
+    print(f"\n   Trying individual multipart uploads...")
+    for endpoint in upload_endpoints:
+        print(f"\n   Trying multipart: {endpoint}")
+        first_img = images[0]
+        with open(first_img["path"], "rb") as f:
+            files = {"file": (first_img["filename"], f, "image/png")}
+            resp = api_call("POST", endpoint, headers_no_ct, files=files)
+
+        if resp.status_code in (200, 201, 202):
+            data = resp.json()
+            print(f"   ✅ Multipart upload works: {json.dumps(data, indent=2)[:300]}")
+            upload_id = data.get("upload_id") or data.get("id") or data.get("file_id")
+            if upload_id:
+                upload_ids.append(upload_id)
+                # Upload remaining images
+                for img in images[1:]:
+                    with open(img["path"], "rb") as f:
+                        files = {"file": (img["filename"], f, "image/png")}
+                        r2 = api_call("POST", endpoint, headers_no_ct, files=files)
+                        if r2.status_code in (200, 201, 202):
+                            d2 = r2.json()
+                            uid = d2.get("upload_id") or d2.get("id") or d2.get("file_id")
+                            if uid:
+                                upload_ids.append(uid)
+                return upload_ids
+            break
+        elif resp.status_code == 404:
+            continue
+        else:
+            print(f"   → {resp.status_code}: {resp.text[:200]}")
+            break
+
+    # Approach C: Try uploading individual base64 images
+    print(f"\n   Trying individual base64 uploads...")
+    for endpoint in upload_endpoints:
+        print(f"\n   Trying single base64: {endpoint}")
+        first_img = images[0]
+        payload = {
+            "filename": first_img["filename"],
+            "data": first_img["base64"],
+            "image": first_img["base64"],
+        }
+        resp = api_call("POST", endpoint, headers_json, json=payload)
+        if resp.status_code in (200, 201, 202):
+            data = resp.json()
+            print(f"   ✅ Single base64 upload works: {json.dumps(data, indent=2)[:300]}")
+            upload_id = data.get("upload_id") or data.get("id") or data.get("file_id")
+            if upload_id:
+                upload_ids.append(upload_id)
+                for img in images[1:]:
+                    payload = {"filename": img["filename"], "data": img["base64"], "image": img["base64"]}
+                    r2 = api_call("POST", endpoint, headers_json, json=payload)
+                    if r2.status_code in (200, 201, 202):
+                        d2 = r2.json()
+                        uid = d2.get("upload_id") or d2.get("id") or d2.get("file_id")
+                        if uid:
+                            upload_ids.append(uid)
+                return upload_ids
+            break
+        elif resp.status_code == 404:
+            continue
+        else:
+            print(f"   → {resp.status_code}: {resp.text[:200]}")
+
+    print(f"\n   ⚠️  Could not find working upload endpoint. Got {len(upload_ids)} upload_ids.")
+    return upload_ids
+
+
+def step3_update_draft(token: str, person_id: str, upload_ids: list, aliases: list = None) -> bool:
+    """Step 3: Update draft person with upload_ids and optional aliases."""
+    print(f"\n📎 Step 3: Updating draft {person_id} with {len(upload_ids)} image(s)...")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    payload = {"upload_ids": upload_ids}
+    if aliases:
+        payload["person_aliases"] = aliases
+
+    resp = api_call("PATCH", f"{CELEBRITY_BASE}/enroll/{person_id}", headers, json=payload)
+
+    if resp.status_code in (200, 201, 202):
+        print(f"   ✅ Draft updated with images")
+        print(f"   Response: {resp.text[:300]}")
+        return True
+    else:
+        print(f"   ❌ Failed: {resp.text[:500]}")
+        return False
+
+
+def step4_finalize(token: str, person_id: str) -> bool:
+    """Step 4: Finalize the enrollment (triggers backfill)."""
+    print(f"\n🚀 Step 4: Finalizing enrollment for {person_id}...")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    resp = api_call("POST", f"{CELEBRITY_BASE}/enroll/{person_id}/finalize", headers)
+
+    if resp.status_code in (200, 201, 202):
+        print(f"   ✅ Enrollment finalized!")
+        print(f"   Response: {resp.text[:500]}")
+        return True
+    else:
+        print(f"   ❌ Failed: {resp.text[:500]}")
+        return False
+
+
+def try_legacy_enroll(token: str, person_name: str, upload_ids: list, aliases: list = None) -> bool:
+    """Fallback: Try legacy enrollment endpoint (single-step)."""
+    print(f"\n🔄 Trying legacy enrollment endpoint...")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
     payload = {
-        "person_name": artist_name,
-        "dataset_id": dataset_id,
-        "face_images": [img["base64"] for img in images],
-        # Alternative formats the API might expect:
-        "images": [
-            {
-                "filename": img["filename"],
-                "data": img["base64"]
-            }
-            for img in images
-        ]
-    }
-    
-    # Try different endpoint patterns
-    for endpoint in enrollment_endpoints:
-        print(f"   Trying endpoint: {endpoint}")
-        try:
-            response = requests.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=60
-            )
-            
-            if response.status_code == 200 or response.status_code == 201:
-                print(f"✅ Successfully enrolled {artist_name}!")
-                return {
-                    "success": True,
-                    "endpoint": endpoint,
-                    "response": response.json() if response.text else {}
-                }
-            elif response.status_code == 404:
-                print(f"   → Endpoint not found, trying next...")
-                continue
-            else:
-                print(f"   → Response {response.status_code}: {response.text[:200]}")
-                
-        except requests.exceptions.Timeout:
-            print(f"   → Request timed out")
-        except Exception as e:
-            print(f"   → Error: {e}")
-    
-    return {"success": False, "error": "All endpoints failed"}
-
-
-def check_enrollment_status(token: str, dataset_id: str) -> dict:
-    """Check the status of celebrity enrollments and backfill jobs."""
-    print("\n📊 Checking enrollment status...")
-    
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    
-    endpoints = [
-        f"{COACTIVE_BASE_URL}/v1/datasets/{dataset_id}/celebrities",
-        f"{COACTIVE_BASE_URL}/v1/datasets/{dataset_id}/jobs",
-    ]
-    
-    for endpoint in endpoints:
-        try:
-            response = requests.get(endpoint, headers=headers, timeout=30)
-            if response.status_code == 200:
-                print(f"✅ Status from {endpoint}:")
-                data = response.json()
-                print(json.dumps(data, indent=2)[:500])
-                return data
-        except Exception as e:
-            print(f"   → Error checking {endpoint}: {e}")
-    
-    return {}
-
-
-def list_detected_faces(token: str, dataset_id: str, person_name: str) -> dict:
-    """Query for images containing the enrolled person."""
-    print(f"\n🔍 Searching for {person_name} in dataset...")
-    
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    
-    # Try the images_with_person endpoint mentioned in the tech doc
-    endpoints = [
-        f"{COACTIVE_BASE_URL}/v1/datasets/{dataset_id}/images_with_person",
-        f"{COACTIVE_BASE_URL}/v1/datasets/{dataset_id}/search/faces",
-    ]
-    
-    params = {
         "person_name": person_name,
-        "limit": 10
+        "upload_ids": upload_ids,
     }
-    
-    for endpoint in endpoints:
-        try:
-            response = requests.get(
-                endpoint, 
-                headers=headers, 
-                params=params,
-                timeout=30
-            )
-            if response.status_code == 200:
-                data = response.json()
-                print(f"✅ Found results:")
-                print(json.dumps(data, indent=2)[:500])
-                return data
-        except Exception as e:
-            print(f"   → Error: {e}")
-    
-    return {}
+    if aliases:
+        payload["person_aliases"] = aliases
+
+    resp = api_call("POST", f"{CELEBRITY_BASE}/enroll-legacy", headers, json=payload)
+
+    if resp.status_code in (200, 201, 202):
+        print(f"   ✅ Legacy enrollment succeeded!")
+        print(f"   Response: {resp.text[:500]}")
+        return True
+    else:
+        print(f"   ❌ Legacy endpoint failed: {resp.text[:500]}")
+        return False
+
+
+def get_persons(token: str) -> list:
+    """List all enrolled persons."""
+    print(f"\n📋 Listing enrolled persons...")
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    resp = api_call("GET", f"{CELEBRITY_BASE}/persons", headers)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        print(f"   ✅ Persons: {json.dumps(data, indent=2)[:800]}")
+        return data if isinstance(data, list) else data.get("persons", data.get("items", []))
+    else:
+        print(f"   → {resp.status_code}: {resp.text[:300]}")
+        return []
 
 
 # =============================================================================
-# MAIN EXECUTION
+# MAIN
 # =============================================================================
 
 def main():
     print("=" * 60)
-    print("🎬 HYBE Celebrity Detection - Artist Enrollment")
+    print("🎬 Celebrity Detection - Person Enrollment")
     print("=" * 60)
-    print(f"Dataset: {DATASET_ID}")
-    print(f"Dataset URL: https://app.coactive.ai/datasets/{DATASET_ID}?tab=videos")
+    print(f"  Dataset: {DATASET_ID}")
+    print(f"  Images:  {SEED_IMAGES_DIR}")
     print("=" * 60)
-    
-    # Step 1: Get JWT token
+
+    if not COACTIVE_API_KEY:
+        print("❌ COACTIVE_API_KEY not set")
+        sys.exit(1)
+
+    # Auth
     token = get_jwt_token(COACTIVE_API_KEY)
-    
-    # Step 2: Process each artist
+
+    # List existing persons
+    get_persons(token)
+
+    # Process each artist
     for artist in ARTISTS:
         print(f"\n{'='*60}")
-        print(f"Processing: {artist['name']} ({artist['group']})")
+        print(f"🏀 Processing: {artist['name']}")
         print("=" * 60)
-        
-        # Load seed images
-        images = get_artist_images(
-            artist["image_pattern"],
-            artist["max_images"]
-        )
-        
+
+        images = get_artist_images(artist["image_pattern"], artist["max_images"])
         if not images:
-            print(f"❌ Skipping {artist['name']} - no images found")
+            print(f"❌ No images found, skipping")
             continue
-        
-        # Enroll the celebrity
-        result = enroll_celebrity(
-            token=token,
-            artist_name=artist["name"],
-            images=images,
-            dataset_id=DATASET_ID
-        )
-        
-        if result.get("success"):
-            print(f"\n✅ {artist['name']} enrolled successfully!")
-            print("ℹ️  Backfill job has been triggered.")
-            print("⏳ Wait 1-2 hours for K-NN search to propagate.")
+
+        # Step 1: Create draft
+        person_id = step1_create_draft_person(token, artist["name"])
+
+        if person_id:
+            # Step 2: Upload images
+            upload_ids = step2_upload_images(token, images)
+
+            if upload_ids:
+                # Step 3: Update draft with upload_ids
+                updated = step3_update_draft(
+                    token, person_id, upload_ids,
+                    aliases=artist.get("aliases")
+                )
+
+                if updated:
+                    # Step 4: Finalize
+                    step4_finalize(token, person_id)
+                else:
+                    print("⚠️  Draft update failed, trying legacy...")
+                    try_legacy_enroll(token, artist["name"], upload_ids, artist.get("aliases"))
+            else:
+                print("⚠️  No upload_ids obtained. Upload endpoint may not be in this collection.")
+                print("   Trying to finalize with just the draft (images may need UI upload)...")
+                step4_finalize(token, person_id)
         else:
-            print(f"\n⚠️  Enrollment may require UI or different API endpoint")
-            print("   Consider using the Roster Tab in the Coactive UI")
-    
-    # Step 3: Check status (optional)
-    print("\n" + "=" * 60)
-    print("📋 Summary")
+            print("⚠️  Could not create draft person.")
+
+    # Final summary
+    print(f"\n{'='*60}")
+    print("📊 Final Status - Enrolled Persons")
     print("=" * 60)
-    check_enrollment_status(token, DATASET_ID)
-    
-    print("\n" + "=" * 60)
-    print("🎯 Next Steps:")
-    print("=" * 60)
-    print("1. If API enrollment failed, use the Roster Tab in the Coactive UI")
-    print("2. Wait 1-2 hours for backfill to complete")
-    print("3. Verify with: /images_with_person endpoint")
-    print("4. Once verified, proceed to Phase 3 (Dynamic Tags for behaviors)")
+    get_persons(token)
     print("=" * 60)
 
 
 if __name__ == "__main__":
     main()
-
-
