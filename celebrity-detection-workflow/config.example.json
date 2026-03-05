@@ -1,0 +1,23 @@
+{
+  "client_name": "your-client-name",
+  "coactive_api_key": "your-coactive-api-key",
+  "base_url": "https://api.coactive.ai",
+  "dataset_id": "your-dataset-uuid",
+  "seed_images_dir": "./seed_images",
+  "celebrities": [
+    {
+      "name": "Celebrity Name",
+      "aliases": ["Alias 1", "Nickname"],
+      "image_pattern": "celebrity_name_*.jpg",
+      "max_images": 18
+    }
+  ],
+  "dt_sql_tables": {
+    "Sports Classification": "dt_sports_classification_visual",
+    "Broadcast Context": "dt_broadcast_context_visual"
+  },
+  "concepts": {
+    "Baton": "baton_prob",
+    "Logo": "logo_prob"
+  }
+}
