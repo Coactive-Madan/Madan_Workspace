@@ -164,7 +164,7 @@ The table name is derived from the DT group name: lowercased, spaces replaced by
 The notebook uses the Coactive Query Engine to fetch scores:
 1. **Submit SQL** -- `POST /api/v1/queries` with a SQL query
 2. **Poll status** -- `GET /api/v1/queries/{query_id}` until complete
-3. **Download results** -- `GET /api/v1/queries/{query_id}/results/csv`
+3. **Download results** -- `GET /api/v1/queries/{query_id}/results` → returns presigned `download_url` for CSV
 
 The notebook then "unpivots" the columnar results so each (image, concept) pair becomes a row in the joined dataset. Queries are batched (200 keyframes/batch) to avoid SQL length limits.
 
@@ -202,7 +202,7 @@ The notebook produces:
 | `/api/v0/login` | POST | Exchange API key for JWT |
 | `/api/v1/queries` | POST | Submit SQL query (async) |
 | `/api/v1/queries/{query_id}` | GET | Check query status |
-| `/api/v1/queries/{query_id}/results/csv` | GET | Download query results |
+| `/api/v1/queries/{query_id}/results` | GET | Get presigned download URL for CSV results |
 | `/api/v0/celebrity-detection/enroll` | POST | Create draft person |
 | `/api/v0/celebrity-detection/upload` | POST | Upload seed images |
 | `/api/v0/celebrity-detection/enroll/{id}` | PATCH | Attach images/aliases |
@@ -235,11 +235,29 @@ The notebook produces:
 | No concept scores returned | Verify concept is trained and published. Check column name matches in `coactive_table_adv`. |
 | Low scoring-preview overlap | Only applies to API fallback. scoring-preview returns ~100 keyframes/tag; asset-check covers the rest. |
 
+## Standalone Tools
+
+### Coactive Analyzer (`coactive_analyzer.py`)
+
+A CLI tool for analyzing Concepts and Dynamic Tags performance across your dataset. Generates statistics, score distributions, and markdown reports.
+
+```bash
+# Analyze all concepts
+python coactive_analyzer.py --token YOUR_TOKEN --type concepts
+
+# Analyze a specific dynamic tag group
+python coactive_analyzer.py --token YOUR_TOKEN --type dynamic-tags --group-id GROUP_ID
+
+# Save report to file
+python coactive_analyzer.py --token YOUR_TOKEN --type concepts --output report.md
+```
+
 ## File Structure
 
 ```
 celebrity-detection-workflow/
   Celebrity_Detection_DT_Workflow.ipynb  # Main reusable notebook
+  coactive_analyzer.py                   # Standalone DT/Concept analyzer CLI
   README.md                              # This file
   config.example.json                    # Config template for enrollment
 ```
