@@ -23,9 +23,22 @@ A reusable workflow for leveraging Coactive's celebrity detection capabilities. 
               │                                       │
     ┌─────────▼──────────┐              ┌─────────────▼─────────┐
     │  Concepts           │              │  Dynamic Tags          │
-    │  coactive_table_adv │              │  dt_[name]_visual      │
+    │  coactive_table_adv │              │  SQL: dt_[name]_visual │
     │  (Query Engine SQL) │              │  (Query Engine SQL)    │
     └─────────┬──────────┘              └─────────────┬─────────┘
+              │                                       │
+              │                              SQL fails? (table not found)
+              │                                       │
+              │                              ┌────────▼────────┐
+              │                              │  Auto-Discover   │
+              │                              │  DT Groups (API) │
+              │                              └────────┬────────┘
+              │                                       │
+              │                              ┌────────▼────────┐
+              │                              │  DT API Fallback │
+              │                              │  scoring-preview │
+              │                              │  + asset-check   │
+              │                              └────────┬────────┘
               │                                       │
               └───────────────────┬───────────────────┘
                         ┌─────────▼───────────┐
@@ -116,9 +129,11 @@ Import `Celebrity_Detection_DT_Workflow.ipynb` into your environment (Databricks
 | `CELEBRITIES` | Dict of `{"Name": "person_id"}` from enrollment | Yes |
 | `CONCEPTS` | Dict of `{"Display Name": "sql_column_name"}` (e.g., `{"Baton": "baton_prob"}`) | If using Concepts |
 | `DT_SQL_TABLES` | Dict of `{"Display Name": "sql_table_name"}` (e.g., `{"Sports": "dt_sports_visual"}`) | If using DTs (recommended) |
-| `DT_GROUPS` | List of `{name, group_id, group_version_id}` | If using DTs (API fallback) |
+| `DT_GROUPS` | List of `{name, group_id, group_version_id}` | If using DTs (API-only, optional) |
 
 You need at least one of `CONCEPTS`, `DT_SQL_TABLES`, or `DT_GROUPS` configured.
+
+**Note:** If `DT_SQL_TABLES` is configured but a table returns `TABLE_OR_VIEW_NOT_FOUND`, the notebook automatically discovers the corresponding DT group via the API and falls back to API-based scoring. You don't need to manually configure `DT_GROUPS` as a backup.
 
 ## SQL Table Schemas
 
@@ -172,11 +187,22 @@ The notebook then "unpivots" the columnar results so each (image, concept) pair 
 
 Uses the same Query Engine workflow as Concepts, but queries `dt_[group_name]_visual` tables. Since DT tables have a normalized schema (one row per image-tag pair), no unpivoting is needed -- the results map directly to the joined dataset.
 
-### Dynamic Tags via API (Fallback)
+**Important:** DT SQL tables may appear in `SHOW TABLES` but return `TABLE_OR_VIEW_NOT_FOUND` errors if the DT group is unpublished, still scoring, or not yet fully materialized. The notebook handles this automatically (see below).
 
-If DT SQL tables are not available (e.g., for unpublished/preview tags), the notebook falls back to a two-phase API approach:
-1. **scoring-preview** -- `GET .../scoring-preview/image-and-keyframe` returns actual DT scores (0-1 normalized), but limited to ~100 keyframes per tag
-2. **asset-check** (fallback) -- `GET .../asset-check` returns raw cosine similarities (~0.1-0.3 range) for all remaining keyframes, parallelized with 10 workers
+### Dynamic Tags via API (Automatic Fallback)
+
+The notebook automatically falls back to the DT API if SQL tables are unavailable. The fallback flow is:
+
+1. **SQL query fails** with `TABLE_OR_VIEW_NOT_FOUND`
+2. **Auto-discovery** -- the notebook calls `GET /api/v3/dynamic-tags/groups` to discover all DT groups, extracting `group_id` and `group_version_id` for each
+3. **Name matching** -- maps the failed SQL table names back to the discovered API groups
+4. **Two-phase API scoring:**
+   - **Phase 1: scoring-preview** -- `GET .../scoring-preview/image-and-keyframe` returns actual DT scores (0-1 normalized), but limited to ~100 top keyframes per tag
+   - **Phase 2: asset-check** -- `GET .../asset-check` returns raw cosine similarities (~0.1-0.3 range) for all remaining (keyframe, tag) pairs not covered by Phase 1, parallelized with 10 workers
+
+This means you can configure `DT_SQL_TABLES` and the notebook will "just work" -- if the SQL tables exist, it uses them directly; if not, it seamlessly falls back to the API.
+
+You can also set `DT_GROUPS` directly (with `group_id` and `group_version_id`) to skip SQL entirely, or leave both empty and the notebook will auto-discover all available DT groups from the API.
 
 ### Join Key
 
@@ -209,6 +235,7 @@ The notebook produces:
 | `/api/v0/celebrity-detection/enroll/{id}/finalize` | POST | Trigger backfill |
 | `/api/v0/celebrity-detection/persons` | GET | List enrolled persons |
 | `/api/v0/celebrity-detection/faces-with-person` | GET | Get face detections |
+| `/api/v3/dynamic-tags/groups` | GET | Auto-discover DT groups (used by fallback) |
 | `/api/v3/dynamic-tags/groups/{id}/versions/{vid}/tags` | GET | List DT tags (API fallback) |
 | `.../scoring-preview/image-and-keyframe` | GET | DT scores 0-1 (API fallback) |
 | `.../asset-check` | GET | Raw cosine similarities (API fallback) |
@@ -227,37 +254,20 @@ The notebook produces:
 | Issue | Solution |
 |-------|----------|
 | 0 faces returned | Backfill may not be complete. Wait 1-2 hours after finalization. |
-| DT SQL table not found | Verify the table name by running `SHOW TABLES` in Coactive SQL editor. Ensure the DT group is published. |
-| No DT scores returned via SQL | Check that the DT group is published and scored. Table name format: `dt_[group_name]_visual`. |
+| DT SQL table not found | The notebook auto-falls back to the DT API. If fallback also fails, verify the DT group exists in the Coactive UI. Note: tables may exist in `SHOW TABLES` but still return `TABLE_OR_VIEW_NOT_FOUND` if the group is unpublished or not yet materialized. |
+| No DT scores returned via SQL | Check that the DT group is published and scored. Table name format: `dt_[group_name]_visual`. The notebook will automatically try the API fallback if SQL fails. |
+| DT auto-discovery finds no groups | Verify your API key has access to DT groups. Check `GET /api/v3/dynamic-tags/groups` manually. |
 | Query Engine timeout | Increase `max_wait` in `poll_query()`. Large datasets take longer. |
 | JWT expired | Re-run the authentication cell. JWTs are short-lived. |
 | `person_id` not found | Run `python celebrity_enrollment.py --list` to verify enrollment. |
 | No concept scores returned | Verify concept is trained and published. Check column name matches in `coactive_table_adv`. |
 | Low scoring-preview overlap | Only applies to API fallback. scoring-preview returns ~100 keyframes/tag; asset-check covers the rest. |
 
-## Standalone Tools
-
-### Coactive Analyzer (`coactive_analyzer.py`)
-
-A CLI tool for analyzing Concepts and Dynamic Tags performance across your dataset. Generates statistics, score distributions, and markdown reports.
-
-```bash
-# Analyze all concepts
-python coactive_analyzer.py --token YOUR_TOKEN --type concepts
-
-# Analyze a specific dynamic tag group
-python coactive_analyzer.py --token YOUR_TOKEN --type dynamic-tags --group-id GROUP_ID
-
-# Save report to file
-python coactive_analyzer.py --token YOUR_TOKEN --type concepts --output report.md
-```
-
 ## File Structure
 
 ```
 celebrity-detection-workflow/
   Celebrity_Detection_DT_Workflow.ipynb  # Main reusable notebook
-  coactive_analyzer.py                   # Standalone DT/Concept analyzer CLI
   README.md                              # This file
   config.example.json                    # Config template for enrollment
 ```
